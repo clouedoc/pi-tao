@@ -1,5 +1,41 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
-import { getChangedFileReferenceCounts, getChangedFileReferenceGraph, getSubmoduleReviewWindowData, isReviewableFilePath, loadReviewFileContents, mergeChangedPaths, parseNameStatus, parseNumStat, parseRawDiff, parseUntrackedPaths } from "../git.js";
+import { getChangedFileReferenceCounts, getChangedFileReferenceGraph, getReviewWindowData, getSubmoduleReviewWindowData, isReviewableFilePath, loadReviewFileContents, mergeChangedPaths, parseNameStatus, parseNumStat, parseRawDiff, parseUntrackedPaths } from "../git.js";
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(repoRoot: string, args: string[]): Promise<void> {
+  await execFileAsync("git", args, { cwd: repoRoot });
+}
+
+async function createGitRepo(): Promise<string> {
+  const repoRoot = await mkdtemp(join(tmpdir(), "pi-slopchop-git-test-"));
+  await runGit(repoRoot, ["init"]);
+  await runGit(repoRoot, ["config", "user.email", "test@example.com"]);
+  await runGit(repoRoot, ["config", "user.name", "Test User"]);
+  await writeFile(join(repoRoot, "README.md"), "initial\n", "utf8");
+  await runGit(repoRoot, ["add", "README.md"]);
+  await runGit(repoRoot, ["commit", "-m", "initial"]);
+  return repoRoot;
+}
+
+function createExecPi() {
+  return {
+    exec: async (command: string, args: string[], options?: { cwd?: string }) => {
+      try {
+        const result = await execFileAsync(command, args, { cwd: options?.cwd });
+        return { code: 0, stdout: result.stdout, stderr: result.stderr };
+      } catch (error) {
+        const execError = error as Error & { code?: number; stdout?: string; stderr?: string };
+        return { code: typeof execError.code === "number" ? execError.code : 1, stdout: execError.stdout ?? "", stderr: execError.stderr ?? execError.message };
+      }
+    },
+  };
+}
 
 describe("git helpers", () => {
   it("parses modified, added, deleted, and renamed files", () => {
@@ -119,6 +155,47 @@ describe("git helpers", () => {
         modifiedRevision: "new-sha",
       },
     }, "all-files")).resolves.toEqual({ originalContent: "old\n", modifiedContent: "new\n" });
+  });
+
+  it("marks large untracked files with compact review metadata", async () => {
+    const repoRoot = await createGitRepo();
+    try {
+      await writeFile(join(repoRoot, "large.md"), `${"line\n".repeat(20_001)}`, "utf8");
+
+      const data = await getReviewWindowData(createExecPi() as never, repoRoot);
+      const file = data.files.find((entry) => entry.path === "large.md");
+
+      expect(file?.gitDiff).toMatchObject({
+        status: "added",
+        additions: 20_001,
+        deletions: 0,
+        isTooLarge: true,
+        statsTruncated: true,
+      });
+      await expect(loadReviewFileContents(createExecPi() as never, repoRoot, file!, "git-diff")).resolves.toEqual({ originalContent: "", modifiedContent: "" });
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("marks tracked diffs over the changed-line limit as compact placeholders", async () => {
+    const repoRoot = await createGitRepo();
+    try {
+      await writeFile(join(repoRoot, "large.md"), `${"line\n".repeat(20_001)}`, "utf8");
+      await runGit(repoRoot, ["add", "large.md"]);
+
+      const data = await getReviewWindowData(createExecPi() as never, repoRoot);
+      const file = data.files.find((entry) => entry.path === "large.md");
+
+      expect(file?.gitDiff).toMatchObject({
+        status: "added",
+        additions: 20_001,
+        deletions: 0,
+        isTooLarge: true,
+      });
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
   });
 
   it("counts changed files referenced by other changed files", () => {

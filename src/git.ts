@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { extname, join, posix } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ChangeStatus, ReviewFile, ReviewFileComparison, ReviewFileContents, ReviewScope, ReviewSubmoduleByScope, ReviewSubmoduleInfo } from "./types.js";
@@ -12,6 +12,7 @@ export interface ChangedPath {
 export interface ChangeStats {
   additions: number;
   deletions: number;
+  statsTruncated?: boolean;
 }
 
 interface ReviewFileSeed {
@@ -51,6 +52,9 @@ async function runGitAllowFailure(pi: ExtensionAPI, repoRoot: string, args: stri
   if (result.code !== 0) return "";
   return result.stdout;
 }
+
+const LARGE_DIFF_MAX_BYTES = 1_000_000;
+const LARGE_DIFF_MAX_CHANGED_LINES = 20_000;
 
 export async function getRepoRoot(pi: ExtensionAPI, cwd: string): Promise<string> {
   const result = await pi.exec("git", ["rev-parse", "--show-toplevel"], { cwd });
@@ -215,11 +219,89 @@ export function parseNumStat(output: string): Map<string, ChangeStats> {
   return stats;
 }
 
-function countContentLines(content: string): number {
-  if (content.length === 0) return 0;
-  const lines = content.split(/\r?\n/);
-  if (lines[lines.length - 1] === "") lines.pop();
-  return lines.length;
+function changedLineCount(stats: ChangeStats | undefined): number {
+  return (stats?.additions ?? 0) + (stats?.deletions ?? 0);
+}
+
+function exceedsLargeDiffLineLimit(stats: ChangeStats | undefined): boolean {
+  return changedLineCount(stats) > LARGE_DIFF_MAX_CHANGED_LINES;
+}
+
+async function getWorkingTreeFileSize(repoRoot: string, path: string | null | undefined): Promise<number | null> {
+  if (path == null) return null;
+  try {
+    const result = await stat(join(repoRoot, path));
+    return result.isFile() ? result.size : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isLargeWorkingTreeFile(repoRoot: string, path: string | null | undefined): Promise<boolean> {
+  const size = await getWorkingTreeFileSize(repoRoot, path);
+  return size != null && size > LARGE_DIFF_MAX_BYTES;
+}
+
+interface BoundedLineCount {
+  complete: boolean;
+  lines: number;
+}
+
+async function countLinesInFileWithLimit(path: string, maxBytes: number, maxLines: number): Promise<BoundedLineCount> {
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+
+  try {
+    const fileStat = await stat(path);
+    handle = await open(path, "r");
+    const buffer = Buffer.alloc(Math.min(64 * 1024, Math.max(1, maxBytes)));
+    let position = 0;
+    let lineCount = 0;
+    let lastByte: number | undefined;
+
+    while (position < maxBytes && lineCount <= maxLines) {
+      const bytesToRead = Math.min(buffer.length, maxBytes - position);
+      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, position);
+      if (bytesRead === 0) break;
+
+      position += bytesRead;
+      for (let index = 0; index < bytesRead; index += 1) {
+        lastByte = buffer[index];
+        if (lastByte === 0x0a) lineCount += 1;
+        if (lineCount > maxLines) break;
+      }
+    }
+
+    const countedLines = lastByte !== undefined && lastByte !== 0x0a ? lineCount + 1 : lineCount;
+    return {
+      complete: position >= fileStat.size && countedLines <= maxLines,
+      lines: countedLines,
+    };
+  } catch {
+    return { complete: true, lines: 0 };
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+async function getUntrackedFileStats(repoRoot: string, path: string): Promise<{ stats: ChangeStats; isTooLarge: boolean }> {
+  const absolutePath = join(repoRoot, path);
+  const size = await getWorkingTreeFileSize(repoRoot, path);
+  if (size == null) return { stats: { additions: 0, deletions: 0 }, isTooLarge: false };
+
+  if (size > LARGE_DIFF_MAX_BYTES) {
+    const counted = await countLinesInFileWithLimit(absolutePath, LARGE_DIFF_MAX_BYTES, LARGE_DIFF_MAX_CHANGED_LINES);
+    return {
+      stats: { additions: counted.lines, deletions: 0, statsTruncated: !counted.complete },
+      isTooLarge: true,
+    };
+  }
+
+  const counted = await countLinesInFileWithLimit(absolutePath, size, LARGE_DIFF_MAX_CHANGED_LINES);
+  const isTooLarge = counted.lines > LARGE_DIFF_MAX_CHANGED_LINES;
+  return {
+    stats: { additions: counted.lines, deletions: 0, statsTruncated: !counted.complete },
+    isTooLarge,
+  };
 }
 
 function toDisplayPath(change: ChangedPath): string {
@@ -229,7 +311,12 @@ function toDisplayPath(change: ChangedPath): string {
   return change.newPath ?? change.oldPath ?? "(unknown)";
 }
 
-function toComparison(change: ChangedPath, stats?: ChangeStats, revisions?: { originalRevision?: string | null; modifiedRevision?: string | null }): ReviewFileComparison {
+function toComparison(
+  change: ChangedPath,
+  stats?: ChangeStats,
+  revisions?: { originalRevision?: string | null; modifiedRevision?: string | null },
+  options?: { isTooLarge?: boolean },
+): ReviewFileComparison {
   return {
     status: change.status,
     oldPath: change.oldPath,
@@ -239,6 +326,8 @@ function toComparison(change: ChangedPath, stats?: ChangeStats, revisions?: { or
     hasModified: change.newPath != null,
     additions: stats?.additions,
     deletions: stats?.deletions,
+    isTooLarge: options?.isTooLarge,
+    statsTruncated: stats?.statsTruncated,
     originalRevision: revisions?.originalRevision,
     modifiedRevision: revisions?.modifiedRevision,
   };
@@ -568,10 +657,13 @@ export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promis
 
   const untrackedChanges = parseUntrackedPaths(untrackedOutput);
   const worktreeStats = parseNumStat(worktreeNumStatOutput);
+  const worktreeLargePaths = new Set<string>();
   await Promise.all(untrackedChanges.map(async (change) => {
     if (change.newPath == null) return;
-    const content = await getWorkingTreeContent(repoRoot, change.newPath);
-    worktreeStats.set(normalizeGitPath(change.newPath), { additions: countContentLines(content), deletions: 0 });
+    const inspection = await getUntrackedFileStats(repoRoot, change.newPath);
+    const normalizedPath = normalizeGitPath(change.newPath);
+    worktreeStats.set(normalizedPath, inspection.stats);
+    if (inspection.isTooLarge) worktreeLargePaths.add(normalizedPath);
   }));
   const lastCommitStats = parseNumStat(lastCommitNumStatOutput);
   const branchStats = parseNumStat(branchNumStatOutput);
@@ -580,6 +672,14 @@ export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promis
   const branchRaw = rawDiffMap(parseRawDiff(branchRawOutput));
   const worktreeChanges = mergeChangedPaths(parseNameStatus(trackedDiffOutput), untrackedChanges)
     .filter((change) => isReviewableFilePath(change.newPath ?? change.oldPath ?? ""));
+  await Promise.all(worktreeChanges.map(async (change) => {
+    const key = normalizeGitPath(getChangeKey(change));
+    if (worktreeLargePaths.has(key)) return;
+    const stats = worktreeStats.get(key);
+    if (exceedsLargeDiffLineLimit(stats) || await isLargeWorkingTreeFile(repoRoot, change.newPath)) {
+      worktreeLargePaths.add(key);
+    }
+  }));
   const deletedPaths = new Set(parseTrackedPaths(deletedFilesOutput));
   const currentPaths = uniquePaths([...parseTrackedPaths(trackedFilesOutput), ...parseTrackedPaths(untrackedOutput)])
     .filter((path) => !deletedPaths.has(path))
@@ -587,11 +687,29 @@ export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promis
   const currentPathSet = new Set(currentPaths);
   const lastCommitChanges = parseNameStatus(lastCommitOutput)
     .filter((change) => isReviewableFilePath(change.newPath ?? change.oldPath ?? ""));
+  const lastCommitLargePaths = new Set<string>();
+  await Promise.all(lastCommitChanges.map(async (change) => {
+    const key = normalizeGitPath(getChangeKey(change));
+    const stats = lastCommitStats.get(key);
+    if (exceedsLargeDiffLineLimit(stats) || await isLargeWorkingTreeFile(repoRoot, change.newPath)) {
+      lastCommitLargePaths.add(key);
+    }
+  }));
   const branchChanges = parseNameStatus(branchDiffOutput)
     .filter((change) => isReviewableFilePath(change.newPath ?? change.oldPath ?? ""));
+  const branchLargePaths = new Set<string>();
+  await Promise.all(branchChanges.map(async (change) => {
+    const key = normalizeGitPath(getChangeKey(change));
+    const stats = branchStats.get(key);
+    if (exceedsLargeDiffLineLimit(stats) || await isLargeWorkingTreeFile(repoRoot, change.newPath)) {
+      branchLargePaths.add(key);
+    }
+  }));
   const branchContentsByPath = new Map<string, string>();
   await Promise.all(branchChanges.map(async (change) => {
     if (change.newPath == null) return;
+    const key = normalizeGitPath(getChangeKey(change));
+    if (branchLargePaths.has(key)) return;
     branchContentsByPath.set(normalizeGitPath(change.newPath), await getWorkingTreeContent(repoRoot, change.newPath));
   }));
   const branchReferenceGraph = getChangedFileReferenceGraph(branchChanges, branchContentsByPath);
@@ -604,14 +722,14 @@ export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promis
     seed.worktreeStatus = change.status;
     seed.hasWorkingTreeFile = change.newPath != null;
     seed.inGitDiff = true;
-    seed.gitDiff = toComparison(change, worktreeStats.get(normalizeGitPath(key)));
+    seed.gitDiff = toComparison(change, worktreeStats.get(normalizeGitPath(key)), undefined, { isTooLarge: worktreeLargePaths.has(normalizeGitPath(key)) });
   }
 
   for (const change of branchChanges) {
     const key = getChangeKey(change);
     const seed = upsertSeed(seeds, key, () => createSeed(key, change.newPath != null && currentPathSet.has(change.newPath)));
     seed.inAllFiles = true;
-    seed.allFiles = toComparison(change, branchStats.get(normalizeGitPath(key)));
+    seed.allFiles = toComparison(change, branchStats.get(normalizeGitPath(key)), undefined, { isTooLarge: branchLargePaths.has(normalizeGitPath(key)) });
     seed.allFilesReferenceCount = branchReferenceGraph.counts.get(normalizeGitPath(key)) ?? 0;
     seed.allFilesOutgoingReferences = branchReferenceGraph.outgoing.get(normalizeGitPath(key)) ?? [];
     seed.allFilesIncomingReferences = branchReferenceGraph.incoming.get(normalizeGitPath(key)) ?? [];
@@ -621,7 +739,7 @@ export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promis
     const key = getChangeKey(change);
     const seed = upsertSeed(seeds, key, () => createSeed(key, change.newPath != null && currentPathSet.has(change.newPath)));
     seed.inLastCommit = true;
-    seed.lastCommit = toComparison(change, lastCommitStats.get(normalizeGitPath(key)));
+    seed.lastCommit = toComparison(change, lastCommitStats.get(normalizeGitPath(key)), undefined, { isTooLarge: lastCommitLargePaths.has(normalizeGitPath(key)) });
   }
 
   if (seeds.size === 0) {
@@ -676,9 +794,16 @@ export async function getSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: s
   const rangeRaw = rawDiffMap(parseRawDiff(rawOutput));
   const rangeChanges = parseNameStatus(diffOutput)
     .filter((change) => isReviewableFilePath(change.newPath ?? change.oldPath ?? ""));
+  const rangeLargePaths = new Set<string>();
+  for (const change of rangeChanges) {
+    const key = normalizeGitPath(getChangeKey(change));
+    if (exceedsLargeDiffLineLimit(rangeStats.get(key))) rangeLargePaths.add(key);
+  }
   const rangeContentsByPath = new Map<string, string>();
   await Promise.all(rangeChanges.map(async (change) => {
     if (change.newPath == null) return;
+    const key = normalizeGitPath(getChangeKey(change));
+    if (rangeLargePaths.has(key)) return;
     rangeContentsByPath.set(normalizeGitPath(change.newPath), await getRevisionContent(pi, repoRoot, newSha, change.newPath));
   }));
   const referenceGraph = getChangedFileReferenceGraph(rangeChanges, rangeContentsByPath);
@@ -688,7 +813,7 @@ export async function getSubmoduleReviewWindowData(pi: ExtensionAPI, repoRoot: s
     const key = getChangeKey(change);
     const seed = upsertSeed(seeds, key, () => createSeed(key, change.newPath != null));
     seed.inAllFiles = true;
-    seed.allFiles = toComparison(change, rangeStats.get(normalizeGitPath(key)), { originalRevision: oldSha, modifiedRevision: newSha });
+    seed.allFiles = toComparison(change, rangeStats.get(normalizeGitPath(key)), { originalRevision: oldSha, modifiedRevision: newSha }, { isTooLarge: rangeLargePaths.has(normalizeGitPath(key)) });
     seed.allFilesReferenceCount = referenceGraph.counts.get(normalizeGitPath(key)) ?? 0;
     seed.allFilesOutgoingReferences = referenceGraph.outgoing.get(normalizeGitPath(key)) ?? [];
     seed.allFilesIncomingReferences = referenceGraph.incoming.get(normalizeGitPath(key)) ?? [];
@@ -720,7 +845,7 @@ export async function loadReviewFileContents(pi: ExtensionAPI, repoRoot: string,
     return { originalContent: content, modifiedContent: content };
   }
 
-  if (comparison == null) {
+  if (comparison == null || comparison.isTooLarge) {
     return { originalContent: "", modifiedContent: "" };
   }
 

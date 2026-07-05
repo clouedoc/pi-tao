@@ -11,6 +11,10 @@ export interface ReviewFileComparison {
   hasModified: boolean;
   additions?: number;
   deletions?: number;
+  /** True when the diff is represented by a compact review placeholder. */
+  isTooLarge?: boolean;
+  /** True when the displayed stats are a lower bound gathered from a bounded scan. */
+  statsTruncated?: boolean;
   /** Revision used for the original side when this comparison has an explicit range. */
   originalRevision?: string | null;
   /** Revision used for the modified side when this comparison has an explicit range. */

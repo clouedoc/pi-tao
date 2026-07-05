@@ -286,6 +286,10 @@ function getScopeDisplayPath(file: ReviewFile | null, scope: ReviewScope): strin
   return getReviewFileDisplayPath(file, scope);
 }
 
+function isScopeComparisonTooLarge(file: ReviewFile | null, scope: ReviewScope): boolean {
+  return getScopeComparison(file, scope)?.isTooLarge === true;
+}
+
 function getStatusLabel(file: ReviewFile | null, scope: ReviewScope): string {
   const status = getScopeComparison(file, scope)?.status ?? file?.worktreeStatus;
   switch (status) {
@@ -305,7 +309,8 @@ function getChangeCountLabel(theme: Theme, file: ReviewFile, scope: ReviewScope)
   const safeAdditions = additions ?? 0;
   const safeDeletions = deletions ?? 0;
   if (safeAdditions === 0 && safeDeletions === 0) return "";
-  return ` ${theme.fg("success", `+${safeAdditions}`)} ${theme.fg("error", `-${safeDeletions}`)}`;
+  const additionsSuffix = comparison?.statsTruncated ? "+" : "";
+  return ` ${theme.fg("success", `+${safeAdditions}${additionsSuffix}`)} ${theme.fg("error", `-${safeDeletions}`)}`;
 }
 
 function getFileCommentCount(state: ReviewState, fileId: string, scope: ReviewScope): number {
@@ -1248,7 +1253,7 @@ class ReviewApp {
 
   private async ensureActiveEntry(): Promise<void> {
     const file = this.activeFile();
-    if (file == null || isSubmoduleReviewFile(file, this.state.activeScope)) return;
+    if (file == null || isSubmoduleReviewFile(file, this.state.activeScope) || isScopeComparisonTooLarge(file, this.state.activeScope)) return;
     const key = this.cacheKey(file.id, this.state.activeScope);
     if (this.cache.has(key)) {
       this.ensureLineSelection();
@@ -2219,6 +2224,21 @@ class ReviewApp {
       }
       lines.push(this.theme.fg("dim", "Press l to comment on the submodule pointer change."));
       if (this.frameStack.length > 0) lines.push(this.theme.fg("dim", `Press ${GO_BACK_SHORTCUT} to return to the parent review.`));
+      return renderBox("Diff", width, height, this.theme, lines, this.state.focus === "diff");
+    }
+
+    const comparison = getScopeComparison(file, this.state.activeScope);
+    if (comparison?.isTooLarge === true) {
+      lines.push(this.theme.fg("warning", "Large file placeholder"));
+      lines.push(this.theme.fg("muted", "This diff is large enough to keep collapsed during interactive review."));
+      if (comparison.additions != null || comparison.deletions != null) {
+        const additions = comparison.additions ?? 0;
+        const deletions = comparison.deletions ?? 0;
+        const suffix = comparison.statsTruncated ? "+" : "";
+        lines.push(this.theme.fg("dim", `Changes: +${additions}${suffix} -${deletions}`));
+      }
+      lines.push("");
+      lines.push(this.theme.fg("dim", "Press l to add a file-level comment."));
       return renderBox("Diff", width, height, this.theme, lines, this.state.focus === "diff");
     }
 

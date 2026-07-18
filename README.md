@@ -27,7 +27,7 @@ Stack files are ordered for review priority: files referenced by more changed fi
 ## Install
 
 ```bash
-pi install npm:pi-slopchop-jj
+pi install git:github.com/clouedoc/pi-slopchop-jj
 ```
 
 Restart Pi or run `/reload`, then open a Jujutsu workspace and run:

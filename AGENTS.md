@@ -7,3 +7,7 @@
 The package is loaded by Pi from `./src/index.ts`.
 
 This is my private fork that uses Jujutsu instead of Git (this is not the public pi-slopchop).
+
+## Local installation
+
+After every change, run `pi install .` from the repository root so Pi uses the local package.

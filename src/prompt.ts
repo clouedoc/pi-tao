@@ -25,11 +25,7 @@ function formatLocation(comment: DiffReviewComment, file: ReviewFile | undefined
 }
 
 function scopeOrder(scope: ReviewScope): number {
-  switch (scope) {
-    case "working-copy": return 0;
-    case "parent-change": return 1;
-    case "stack": return 2;
-  }
+  return scope === "change" ? 0 : 1;
 }
 
 function sortComments(comments: DiffReviewComment[], fileMap: Map<string, ReviewFile>): DiffReviewComment[] {

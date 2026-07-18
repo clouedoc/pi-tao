@@ -35,7 +35,7 @@ import { detectPiLanguage, highlightCodeLineWithPi } from "../pi-render.js";
 import { getShortcutConfigPath, getShortcutsForSide, type CommentShortcut } from "../shortcuts.js";
 import { filterFilesBySearch } from "../search.js";
 import { highlightJsonLine, highlightMarkdownLine } from "../theme-highlight.js";
-import type { CommentIntent, DiffReviewComment, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewState } from "../types.js";
+import type { CommentIntent, DiffReviewComment, ReviewChange, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewState, ReviewWindowData } from "../types.js";
 import { formatIntentLabel, formatScopeLabel, getReviewFileDisplayPath } from "../types.js";
 
 interface LoadedEntryReady {
@@ -67,7 +67,10 @@ type CommentPanelItem =
 interface ReviewAppOptions {
   files: ReviewFile[];
   repoRoot: string;
+  changes: ReviewChange[];
+  selectedChange: ReviewChange;
   loadFileContents: (repoRoot: string, file: ReviewFile, scope: ReviewScope) => Promise<ReviewFileContents>;
+  loadChange: (revision: string) => Promise<ReviewWindowData>;
   commentShortcuts: CommentShortcut[];
 }
 
@@ -84,7 +87,7 @@ interface MousePaneLayout {
   comments: MousePaneBounds | null;
 }
 
-const SEARCHABLE_SCOPES: ReviewScope[] = ["working-copy", "parent-change", "stack"];
+const SEARCHABLE_SCOPES: ReviewScope[] = ["change", "stack"];
 const DEFAULT_CONTEXT_LINES = 3;
 const STACKED_LAYOUT_MAX_WIDTH = 99;
 
@@ -252,9 +255,7 @@ function wrapAnsiText(text: string, width: number, wrapLines: boolean): string[]
 
 function getScopeComparison(file: ReviewFile | null, scope: ReviewScope) {
   if (file == null) return null;
-  if (scope === "working-copy") return file.workingCopy;
-  if (scope === "parent-change") return file.parentChange;
-  return file.stack;
+  return scope === "change" ? file.change : file.stack;
 }
 
 function getScopeDisplayPath(file: ReviewFile | null, scope: ReviewScope): string {
@@ -435,7 +436,7 @@ const HELP_KEY_SECTIONS = [
   {
     title: "Core",
     lines: [
-      "1/2/3 switch review scope",
+      "1/2 switch review scope",
       "Tab / Shift+Tab cycle focus",
       "/ search files • ? toggle help",
       "w wrap lines • v toggle diff view",
@@ -449,7 +450,8 @@ const HELP_KEY_SECTIONS = [
     lines: [
       "navigator: ↑↓/j/k files",
       "Ctrl+d/u half-page • gg/G top/bottom",
-      "r related filter • Enter focus diff",
+      "r choose change / related filter",
+      "Enter focus diff",
     ],
   },
   {
@@ -788,13 +790,37 @@ function getCommentableLineTargets(diff: StructuredDiff): ReviewLineTarget[] {
   return targets;
 }
 
+export function filterReviewChanges(changes: ReviewChange[], query: string): ReviewChange[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return changes;
+  return changes.filter((change) => [
+    change.changeId,
+    change.commitId,
+    change.description,
+    ...change.bookmarks,
+  ].some((value) => value.toLowerCase().includes(normalized)));
+}
+
+function formatReviewChangeLabel(change: ReviewChange): string {
+  const workingCopy = change.isWorkingCopy ? "@ " : "  ";
+  const bookmarks = change.bookmarks.length === 0 ? "" : ` ${change.bookmarks.join(" ")}`;
+  return `${workingCopy}${change.changeId.slice(0, 8)} ${change.commitId.slice(0, 8)}${bookmarks} ${change.description}`;
+}
+
 class ReviewApp {
   focused = false;
 
   private repoRoot: string;
   private files: ReviewFile[];
+  private changes: ReviewChange[];
+  private selectedChange: ReviewChange;
+  private readonly submittedFiles = new Map<string, ReviewFile>();
   private state: ReviewState;
   private cache = new Map<string, LoadedEntry>();
+  private changePickerMode = false;
+  private changePickerQuery = "";
+  private changePickerIndex = 0;
+  private changePickerLoading = false;
   private searchMode = false;
   private searchBuffer = "";
   private shortcutMode = false;
@@ -830,6 +856,9 @@ class ReviewApp {
   ) {
     this.repoRoot = options.repoRoot;
     this.files = options.files;
+    this.changes = options.changes;
+    this.selectedChange = options.selectedChange;
+    for (const file of this.files) this.submittedFiles.set(file.id, file);
     this.state = ensureActiveFile(createInitialReviewState(this.files), this.files);
     this.searchBuffer = this.state.searchQuery;
 
@@ -953,6 +982,62 @@ class ReviewApp {
 
   private setMessage(message: string): void {
     this.message = message;
+  }
+
+  private getFilteredChanges(): ReviewChange[] {
+    return filterReviewChanges(this.changes, this.changePickerQuery);
+  }
+
+  private openChangePicker(): void {
+    this.changePickerMode = true;
+    this.changePickerQuery = "";
+    this.changePickerIndex = Math.max(0, this.changes.findIndex((change) => change.commitId === this.selectedChange.commitId));
+    this.requestRender();
+  }
+
+  private closeChangePicker(): void {
+    if (this.changePickerLoading) return;
+    this.changePickerMode = false;
+    this.requestRender();
+  }
+
+  private async selectChange(change: ReviewChange): Promise<void> {
+    if (change.commitId === this.selectedChange.commitId) {
+      this.closeChangePicker();
+      return;
+    }
+
+    this.changePickerLoading = true;
+    this.requestRender();
+    try {
+      const data = await this.options.loadChange(change.commitId);
+      this.files = data.files;
+      this.changes = data.changes;
+      this.selectedChange = data.selectedChange;
+      for (const file of data.files) this.submittedFiles.set(file.id, file);
+      this.state = ensureActiveFile({
+        ...this.state,
+        activeScope: "change",
+        activeFileId: null,
+        searchQuery: "",
+        selectedCommentIndex: 0,
+      }, this.files);
+      this.searchBuffer = "";
+      this.navigatorScroll = 0;
+      this.diffScroll = 0;
+      this.commentsScroll = 0;
+      this.relatedFilterAnchorFileId = null;
+      this.relatedFilterReturnFileId = null;
+      this.changePickerMode = false;
+      void this.ensureActiveEntry();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.changePickerMode = false;
+      this.setMessage(`Could not load change: ${message}`);
+    } finally {
+      this.changePickerLoading = false;
+      this.requestRender();
+    }
   }
 
   private activeFile(): ReviewFile | null {
@@ -1312,7 +1397,7 @@ class ReviewApp {
       this.requestRender();
       return;
     }
-    this.done({ result: { type: "submit", ...this.state.draft }, files: this.files });
+    this.done({ result: { type: "submit", ...this.state.draft }, files: [...this.submittedFiles.values()] });
   }
 
   private cancel(): void {
@@ -1387,7 +1472,7 @@ class ReviewApp {
 
   private openShortcutMode(): void {
     if (this.state.activeScope === "stack") {
-      this.setMessage("Template shortcuts are only available in working copy and parent change scopes.");
+      this.setMessage("Template shortcuts are only available in the Change scope.");
       this.requestRender();
       return;
     }
@@ -1609,6 +1694,42 @@ class ReviewApp {
     this.requestRender();
   }
 
+  private handleChangePickerInput(data: string): void {
+    if (this.changePickerLoading) return;
+    if (matchesKey(data, Key.escape)) {
+      this.closeChangePicker();
+      return;
+    }
+
+    const changes = this.getFilteredChanges();
+    if (matchesKey(data, Key.up)) {
+      this.changePickerIndex = Math.max(0, this.changePickerIndex - 1);
+      this.requestRender();
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.changePickerIndex = Math.min(Math.max(0, changes.length - 1), this.changePickerIndex + 1);
+      this.requestRender();
+      return;
+    }
+    if (matchesKey(data, Key.enter)) {
+      const change = changes[this.changePickerIndex];
+      if (change != null) void this.selectChange(change);
+      return;
+    }
+    if (matchesKey(data, Key.backspace)) {
+      this.changePickerQuery = this.changePickerQuery.slice(0, -1);
+      this.changePickerIndex = 0;
+      this.requestRender();
+      return;
+    }
+    if (data.length === 1 && data >= " ") {
+      this.changePickerQuery += data;
+      this.changePickerIndex = 0;
+      this.requestRender();
+    }
+  }
+
   private handleSearchInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
       this.closeSearch(false);
@@ -1635,6 +1756,10 @@ class ReviewApp {
 
   handleInput(data: string): void {
     if (this.externalEditorOpen) return;
+    if (this.changePickerMode) {
+      this.handleChangePickerInput(data);
+      return;
+    }
     if (this.handleMouseWheel(data)) return;
 
     if (this.editTarget != null) {
@@ -1693,14 +1818,14 @@ class ReviewApp {
     if (data === "?") { this.toggleHelpMode(); return; }
     if (this.helpMode && matchesKey(data, Key.escape)) { this.helpMode = false; this.requestRender(); return; }
 
-    if (data === "1") { this.setScope("working-copy"); return; }
-    if (data === "2") { this.setScope("parent-change"); return; }
-    if (data === "3") { this.setScope("stack"); return; }
+    if (data === "1") { this.setScope("change"); return; }
+    if (data === "2") { this.setScope("stack"); return; }
     if (matchesKey(data, Key.shift("tab"))) { this.cycleVisibleFocus(true); return; }
     if (matchesKey(data, Key.tab)) { this.cycleVisibleFocus(); return; }
     if (data === "g") { this.pendingVimSequence = "g"; return; }
     if (data === "G") { this.jumpToBoundary("end"); return; }
     if (data === "/") { this.openSearch(); return; }
+    if (data === "r" && this.state.activeScope === "change") { this.openChangePicker(); return; }
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) { this.requestCancel(); return; }
     if (data === "h") { this.toggleCommentsPane(); return; }
     if (data === "w") { this.state = setWrapLines(this.state, !this.state.wrapLines); this.requestRender(); return; }
@@ -1841,7 +1966,9 @@ class ReviewApp {
 
     if (files.length === 0) {
       lines.push(this.theme.fg("warning", "No files in this scope."));
-      lines.push(this.theme.fg("dim", "Try another scope or clear search."));
+      lines.push(this.theme.fg("dim", this.state.activeScope === "change" && this.state.searchQuery.length === 0
+        ? "Press r to choose another change."
+        : "Try another scope or clear search."));
       return renderBox("Navigator", width, height, this.theme, lines, this.state.focus === "navigator");
     }
 
@@ -2186,10 +2313,41 @@ class ReviewApp {
     return renderBox("Comments", width, height, this.theme, lines, this.state.focus === "comments");
   }
 
+  private renderChangePicker(width: number, height: number): string[] {
+    const changes = this.getFilteredChanges();
+    this.changePickerIndex = Math.min(this.changePickerIndex, Math.max(0, changes.length - 1));
+    const contentWidth = Math.max(1, width - 2 - MODAL_INNER_PADDING_X * 2);
+    const maxItems = Math.max(1, height - 10);
+    const start = Math.max(0, Math.min(this.changePickerIndex - Math.floor(maxItems / 2), changes.length - maxItems));
+    const lines = [
+      this.theme.fg("muted", `Search: ${this.changePickerQuery || "type to filter"}`),
+      "",
+    ];
+
+    if (this.changePickerLoading) {
+      lines.push(this.theme.fg("accent", "Loading change…"));
+    } else if (changes.length === 0) {
+      lines.push(this.theme.fg("warning", "No matching changes."));
+    } else {
+      for (const [offset, change] of changes.slice(start, start + maxItems).entries()) {
+        const index = start + offset;
+        const label = truncateToWidth(formatReviewChangeLabel(change), contentWidth, "…", false);
+        lines.push(index === this.changePickerIndex
+          ? this.theme.bg("selectedBg", this.theme.fg("text", label))
+          : this.theme.fg(change.commitId === this.selectedChange.commitId ? "accent" : "muted", label));
+      }
+    }
+
+    lines.push("", this.theme.fg("dim", "↑↓ select • Enter open • Esc cancel"));
+    return renderOuterFrame(width, height, this.theme, "Select change", lines);
+  }
+
   render(width: number): string[] {
     this.lastWidth = Math.max(40, width);
     const terminalRows = this.tui?.terminal?.rows ?? 28;
     const totalHeight = Math.max(20, terminalRows - 4);
+    if (this.changePickerMode) return this.renderChangePicker(this.lastWidth, totalHeight);
+
     const frameColor = "accent" as const;
     const frameInnerWidth = Math.max(20, this.lastWidth - 2 - MODAL_INNER_PADDING_X * 2);
     const frameInnerHeight = Math.max(10, totalHeight - 2 - MODAL_INNER_PADDING_Y * 2);
@@ -2212,12 +2370,15 @@ class ReviewApp {
           ? `Search: ${this.searchBuffer}`
           : this.editTarget != null
             ? `Editing ${formatIntentLabel(this.editTarget.intent).toLowerCase()} comment`
-            : `${formatFocusStatus(this.state.focus)} • ${layoutStatus}Tab focus • / search • t templates • v diff view • ? help • 1/2/3 scopes • h ${this.commentsHidden ? "show" : "hide"} comments • o open in $EDITOR • s submit • Esc exit • Ctrl+C exit`);
+            : `${formatFocusStatus(this.state.focus)} • ${layoutStatus}Tab focus • / search • r ${this.state.activeScope === "change" ? "choose change" : "related files"} • t templates • v diff view • ? help • 1/2 scopes • h ${this.commentsHidden ? "show" : "hide"} comments • o open in $EDITOR • s submit • Esc exit • Ctrl+C exit`);
 
     const scopeTabs = SEARCHABLE_SCOPES.map((scope, index) => {
       const active = this.state.activeScope === scope;
       const count = getScopedFiles(this.files, scope).length;
-      const text = `${index + 1}:${formatScopeLabel(scope)}(${count})`;
+      const selection = scope === "change"
+        ? ` ${this.selectedChange.isWorkingCopy ? "@" : this.selectedChange.changeId.slice(0, 8)}`
+        : " trunk()→@";
+      const text = `${index + 1}:${formatScopeLabel(scope)}${selection}(${count})`;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
     }).join(" ");
 

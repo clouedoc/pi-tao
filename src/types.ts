@@ -1,8 +1,18 @@
-export type ReviewScope = "working-copy" | "parent-change" | "stack";
+export type ReviewScope = "change" | "stack";
+
+export interface ReviewChange {
+  commitId: string;
+  changeId: string;
+  description: string;
+  bookmarks: string[];
+  isWorkingCopy: boolean;
+}
 
 export interface ReviewWindowData {
   repoRoot: string;
   files: ReviewFile[];
+  changes: ReviewChange[];
+  selectedChange: ReviewChange;
 }
 
 export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "copied";
@@ -25,11 +35,9 @@ export interface ReviewFile {
   id: string;
   path: string;
   hasWorkingCopyFile: boolean;
-  inWorkingCopy: boolean;
-  inParentChange: boolean;
+  inChange: boolean;
   inStack: boolean;
-  workingCopy: ReviewFileComparison | null;
-  parentChange: ReviewFileComparison | null;
+  change: ReviewFileComparison | null;
   stack: ReviewFileComparison | null;
   stackReferenceCount?: number;
   stackOutgoingReferences?: string[];
@@ -95,11 +103,7 @@ export interface ReviewCancelPayload {
 export type ReviewResult = ReviewSubmitPayload | ReviewCancelPayload;
 
 export function formatScopeLabel(scope: ReviewScope): string {
-  switch (scope) {
-    case "working-copy": return "working copy";
-    case "parent-change": return "parent change";
-    case "stack": return "stack vs trunk";
-  }
+  return scope === "change" ? "Change" : "Stack";
 }
 
 export function scopeFileKey(scope: ReviewScope, fileId: string): string {
@@ -115,6 +119,6 @@ export function formatIntentLabel(intent: CommentIntent): string {
 
 export function getReviewFileDisplayPath(file: ReviewFile | null | undefined, scope: ReviewScope): string {
   if (file == null) return "(no file)";
-  const comparison = scope === "working-copy" ? file.workingCopy : scope === "parent-change" ? file.parentChange : file.stack;
+  const comparison = scope === "change" ? file.change : file.stack;
   return comparison?.displayPath ?? file.path;
 }

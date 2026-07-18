@@ -11,16 +11,12 @@ It lets you stop after an agent turn, review the current change or stack inside 
 
 | Key | Scope | Revisions |
 | --- | --- | --- |
-| `1` | working copy | `@-` to `@` |
-| `2` | parent change | `@--` to `@-` |
-| `3` | stack vs trunk | `fork_point(trunk() \| @)` to `@` |
+| `1` | Change | selected change's parent to the selected change |
+| `2` | Stack | `fork_point(trunk() \| @)` to `@` |
 
-The UI opens the first available scope in this order:
+Change defaults to `@`. Press `r` in the Change scope to search by change ID, commit ID, bookmark, or description and review an older change.
 
-1. working copy
-2. stack vs trunk
-3. parent change
-4. current file contents when no scope contains a change
+The UI opens Change by default. If `@` is empty but Stack has files, it opens Stack.
 
 Stack files are ordered for review priority: files referenced by more changed files first, then modified/renamed before added/copied before deleted, then source files before tests/docs/changesets, then path order.
 
@@ -41,7 +37,7 @@ The review UI does not send feedback automatically. It inserts the generated pro
 ## Basic flow
 
 1. Run `/diff`.
-2. Pick a review scope with `1`, `2`, or `3`.
+2. Pick Change or Stack with `1` or `2`. In Change, press `r` to choose another change.
 3. Move to the file and line you want to review.
 4. Add feedback:
    - `f` for a line comment with `FIX` preselected
@@ -93,13 +89,13 @@ The generated prompt distinguishes FIX-only, DISCUSS-only, and mixed reviews so 
 
 ### Global
 
-- `1 / 2 / 3` — switch scope
+- `1 / 2` — switch between Change and Stack
 - `Tab / Shift+Tab` — cycle focus
 - `/` — search files
 - `?` — toggle help
 - `w` — toggle wrapping
 - `v` — toggle unified / side-by-side diff
-- `u` — toggle unchanged context in working-copy and parent-change scopes
+- `u` — toggle unchanged context in the Change scope
 - `h` — hide/show comments
 - `s` — insert the generated prompt into Pi's editor
 - `Esc` or `Ctrl+C` — exit, with confirmation when draft feedback exists
@@ -110,7 +106,7 @@ The generated prompt distinguishes FIX-only, DISCUSS-only, and mixed reviews so 
 - `↑↓` or `j/k` — move between files
 - `Ctrl+d / Ctrl+u` — move by half a pane
 - `gg / G` — jump to top / bottom
-- `r` — toggle related-files filtering in the stack scope
+- `r` — choose a change in the Change scope; toggle related-files filtering in Stack
 - `Enter` — focus the diff
 
 In related mode, `→` means the active file references that file, `←` means that file references the active file, and `↔` means both.

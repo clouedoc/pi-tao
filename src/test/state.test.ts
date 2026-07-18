@@ -23,34 +23,35 @@ function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
     id: path,
     path,
     hasWorkingCopyFile: true,
-    inWorkingCopy: true,
-    inParentChange: false,
+    inChange: true,
     inStack: false,
-    workingCopy: null,
-    parentChange: null,
+    change: null,
     stack: null,
     ...flags,
   };
 }
 
 describe("review state", () => {
-  it("picks the working copy as the default scope when available", () => {
+  it("picks Change by default when it has files", () => {
     expect(getDefaultScope([
-      makeFile("src/a.ts", { inWorkingCopy: true }),
-      makeFile("src/b.ts", { inWorkingCopy: false, inParentChange: true }),
-    ])).toBe("working-copy");
+      makeFile("src/a.ts", { inChange: true }),
+      makeFile("src/b.ts", { inChange: false, inStack: true }),
+    ])).toBe("change");
   });
 
-  it("prefers the stack over the parent change when the working copy is empty", () => {
+  it("picks Stack when the selected change is empty", () => {
     expect(getDefaultScope([
-      makeFile("src/a.ts", { inWorkingCopy: false, inStack: true }),
-      makeFile("src/b.ts", { inWorkingCopy: false, inParentChange: true }),
+      makeFile("src/a.ts", { inChange: false, inStack: true }),
     ])).toBe("stack");
+  });
+
+  it("picks Change when both comparisons are empty so the picker stays accessible", () => {
+    expect(getDefaultScope([])).toBe("change");
   });
 
   it("orders stack changes by review priority", () => {
     const makeAllFile = (path: string, status: "modified" | "added" | "deleted", references = 0) => makeFile(path, {
-      inWorkingCopy: false,
+      inChange: false,
       inStack: true,
       stackReferenceCount: references,
       stack: {
@@ -78,42 +79,42 @@ describe("review state", () => {
 
   it("switches scopes and keeps selection valid", () => {
     const files = [
-      makeFile("src/a.ts", { inWorkingCopy: true, inParentChange: false }),
-      makeFile("src/b.ts", { inWorkingCopy: false, inParentChange: true }),
+      makeFile("src/a.ts", { inChange: true, inStack: false }),
+      makeFile("src/b.ts", { inChange: false, inStack: true }),
     ];
     let state = createInitialReviewState(files);
-    state = setScope(state, files, "parent-change");
+    state = setScope(state, files, "stack");
     expect(state.activeFileId).toBe("src/b.ts");
   });
 
   it("enforces one line comment per file+scope+side+line", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "added", 12, "First");
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "added", 12, "Second");
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "deleted", 12, "Removed note");
+    state = upsertLineComment(state, "src/a.ts", "change", "added", 12, "First");
+    state = upsertLineComment(state, "src/a.ts", "change", "added", 12, "Second");
+    state = upsertLineComment(state, "src/a.ts", "change", "deleted", 12, "Removed note");
 
     expect(state.draft.comments).toHaveLength(2);
-    expect(getLineComment(state, "src/a.ts", "working-copy", "added", 12)?.body).toBe("Second");
-    expect(getLineComment(state, "src/a.ts", "working-copy", "added", 12)?.intent).toBe("fix");
-    expect(getLineComment(state, "src/a.ts", "working-copy", "deleted", 12)?.body).toBe("Removed note");
+    expect(getLineComment(state, "src/a.ts", "change", "added", 12)?.body).toBe("Second");
+    expect(getLineComment(state, "src/a.ts", "change", "added", 12)?.intent).toBe("fix");
+    expect(getLineComment(state, "src/a.ts", "change", "deleted", 12)?.body).toBe("Removed note");
   });
 
   it("supports line comment ranges", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "added", 12, "Range note", "discuss", 14);
+    state = upsertLineComment(state, "src/a.ts", "change", "added", 12, "Range note", "discuss", 14);
 
     expect(state.draft.comments).toHaveLength(1);
-    expect(getLineComment(state, "src/a.ts", "working-copy", "added", 13)?.body).toBe("Range note");
+    expect(getLineComment(state, "src/a.ts", "change", "added", 13)?.body).toBe("Range note");
     expect(state.draft.comments[0]).toMatchObject({ startLine: 12, endLine: 14, intent: "discuss" });
   });
 
   it("replaces overlapping line comment ranges", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "added", 12, "Range note", "fix", 14);
-    state = upsertLineComment(state, "src/a.ts", "working-copy", "added", 13, "Middle note");
+    state = upsertLineComment(state, "src/a.ts", "change", "added", 12, "Range note", "fix", 14);
+    state = upsertLineComment(state, "src/a.ts", "change", "added", 13, "Middle note");
 
     expect(state.draft.comments).toHaveLength(1);
     expect(state.draft.comments[0]).toMatchObject({ startLine: 13, endLine: 13, body: "Middle note" });
@@ -122,12 +123,12 @@ describe("review state", () => {
   it("enforces one file comment per file+scope", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
-    state = upsertFileComment(state, "src/a.ts", "working-copy", "One", "discuss");
-    state = upsertFileComment(state, "src/a.ts", "working-copy", "Two", "fix");
+    state = upsertFileComment(state, "src/a.ts", "change", "One", "discuss");
+    state = upsertFileComment(state, "src/a.ts", "change", "Two", "fix");
 
     expect(state.draft.comments).toHaveLength(1);
-    expect(getFileComment(state, "src/a.ts", "working-copy")?.body).toBe("Two");
-    expect(getFileComment(state, "src/a.ts", "working-copy")?.intent).toBe("fix");
+    expect(getFileComment(state, "src/a.ts", "change")?.body).toBe("Two");
+    expect(getFileComment(state, "src/a.ts", "change")?.intent).toBe("fix");
   });
 
   it("filters files using search query", () => {
@@ -156,38 +157,38 @@ describe("review state", () => {
   it("clamps selected line target to a visible target", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
-    state = clampSelectedLineTarget(state, "src/a.ts", "working-copy", [{ side: "deleted", line: 4 }, { side: "added", line: 8 }]);
-    expect(state.selectedLineTargetByScopeFile["working-copy::src/a.ts"]).toEqual({ side: "deleted", line: 4 });
+    state = clampSelectedLineTarget(state, "src/a.ts", "change", [{ side: "deleted", line: 4 }, { side: "added", line: 8 }]);
+    expect(state.selectedLineTargetByScopeFile["change::src/a.ts"]).toEqual({ side: "deleted", line: 4 });
   });
 
   it("clamps large diff jumps to the visible boundaries", () => {
     const files = [makeFile("src/a.ts")];
     const visibleTargets = [{ side: "deleted" as const, line: 4 }, { side: "added" as const, line: 8 }, { side: "added" as const, line: 12 }];
     let state = createInitialReviewState(files);
-    state = moveSelectedLineTarget(state, "src/a.ts", "working-copy", visibleTargets, 99);
-    expect(state.selectedLineTargetByScopeFile["working-copy::src/a.ts"]).toEqual({ side: "added", line: 12 });
-    state = moveSelectedLineTarget(state, "src/a.ts", "working-copy", visibleTargets, -99);
-    expect(state.selectedLineTargetByScopeFile["working-copy::src/a.ts"]).toEqual({ side: "deleted", line: 4 });
+    state = moveSelectedLineTarget(state, "src/a.ts", "change", visibleTargets, 99);
+    expect(state.selectedLineTargetByScopeFile["change::src/a.ts"]).toEqual({ side: "added", line: 12 });
+    state = moveSelectedLineTarget(state, "src/a.ts", "change", visibleTargets, -99);
+    expect(state.selectedLineTargetByScopeFile["change::src/a.ts"]).toEqual({ side: "deleted", line: 4 });
   });
 
   it("extends selected line targets on the same side", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
     const targets = [{ side: "added" as const, line: 10 }, { side: "deleted" as const, line: 10 }, { side: "added" as const, line: 11 }, { side: "added" as const, line: 12 }];
-    state = extendSelectedLineTarget(state, "src/a.ts", "working-copy", targets, 1);
-    state = extendSelectedLineTarget(state, "src/a.ts", "working-copy", targets, 1);
+    state = extendSelectedLineTarget(state, "src/a.ts", "change", targets, 1);
+    state = extendSelectedLineTarget(state, "src/a.ts", "change", targets, 1);
 
-    expect(state.selectedLineTargetByScopeFile["working-copy::src/a.ts"]).toEqual({ side: "added", line: 12, endLine: 10 });
+    expect(state.selectedLineTargetByScopeFile["change::src/a.ts"]).toEqual({ side: "added", line: 12, endLine: 10 });
   });
 
   it("collapses range selection when no farther line exists on that side", () => {
     const files = [makeFile("src/a.ts")];
     let state = createInitialReviewState(files);
     const targets = [{ side: "added" as const, line: 10 }, { side: "added" as const, line: 11 }];
-    state = extendSelectedLineTarget(state, "src/a.ts", "working-copy", targets, 1);
-    state = extendSelectedLineTarget(state, "src/a.ts", "working-copy", targets, 1);
+    state = extendSelectedLineTarget(state, "src/a.ts", "change", targets, 1);
+    state = extendSelectedLineTarget(state, "src/a.ts", "change", targets, 1);
 
-    expect(state.selectedLineTargetByScopeFile["working-copy::src/a.ts"]).toEqual({ side: "added", line: 10 });
+    expect(state.selectedLineTargetByScopeFile["change::src/a.ts"]).toEqual({ side: "added", line: 10 });
   });
 
   it("clamps large comment jumps to the list boundaries", () => {

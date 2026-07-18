@@ -7,10 +7,9 @@ function hasFilesForScope(files: ReviewFile[], scope: ReviewScope): boolean {
 }
 
 export function getDefaultScope(files: ReviewFile[]): ReviewScope {
-  if (hasFilesForScope(files, "working-copy")) return "working-copy";
+  if (hasFilesForScope(files, "change")) return "change";
   if (hasFilesForScope(files, "stack")) return "stack";
-  if (hasFilesForScope(files, "parent-change")) return "parent-change";
-  return "stack";
+  return "change";
 }
 
 function getStackStatusRank(status: ChangeStatus | null | undefined): number {
@@ -48,10 +47,8 @@ export function compareStackForReview(a: ReviewFile, b: ReviewFile): number {
 
 export function getScopedFiles(files: ReviewFile[], scope: ReviewScope): ReviewFile[] {
   switch (scope) {
-    case "working-copy":
-      return files.filter((file) => file.inWorkingCopy);
-    case "parent-change":
-      return files.filter((file) => file.inParentChange);
+    case "change":
+      return files.filter((file) => file.inChange);
     case "stack": {
       const scoped = files.filter((file) => file.inStack);
       if (!scoped.some((file) => file.stack != null)) return scoped;

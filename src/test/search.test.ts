@@ -7,11 +7,9 @@ function makeFile(path: string): ReviewFile {
     id: path,
     path,
     hasWorkingCopyFile: true,
-    inWorkingCopy: true,
-    inParentChange: true,
+    inChange: true,
     inStack: false,
-    workingCopy: null,
-    parentChange: null,
+    change: null,
     stack: null,
   };
 }

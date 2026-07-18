@@ -7,37 +7,33 @@ const files: ReviewFile[] = [
     id: "foo",
     path: "src/foo.ts",
     hasWorkingCopyFile: true,
-    inWorkingCopy: true,
-    inParentChange: true,
-    inStack: false,
-    workingCopy: {
+    inChange: true,
+    inStack: true,
+    change: {
       status: "modified",
       oldPath: "src/foo.ts",
       newPath: "src/foo.ts",
       displayPath: "src/foo.ts",
     },
-    parentChange: {
+    stack: {
       status: "renamed",
       oldPath: "src/old-foo.ts",
       newPath: "src/foo.ts",
       displayPath: "src/old-foo.ts -> src/foo.ts",
     },
-    stack: null,
   },
   {
     id: "bar",
     path: "src/bar.ts",
     hasWorkingCopyFile: true,
-    inWorkingCopy: true,
-    inParentChange: false,
+    inChange: true,
     inStack: false,
-    workingCopy: {
+    change: {
       status: "modified",
       oldPath: "src/bar.ts",
       newPath: "src/bar.ts",
       displayPath: "src/bar.ts",
     },
-    parentChange: null,
     stack: null,
   },
 ];
@@ -52,7 +48,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "2",
           fileId: "foo",
-          scope: "parent-change",
+          scope: "stack",
           side: "file",
           intent: "fix",
           startLine: null,
@@ -62,7 +58,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "working-copy",
+          scope: "change",
           side: "added",
           intent: "fix",
           startLine: 27,
@@ -72,7 +68,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "3",
           fileId: "foo",
-          scope: "parent-change",
+          scope: "stack",
           side: "deleted",
           intent: "fix",
           startLine: 11,
@@ -102,7 +98,7 @@ describe("composeReviewPrompt", () => {
       "1. src/bar.ts:27 (added)",
       "   Flatten this conditional.",
       "",
-      "2. src/old-foo.ts -> src/foo.ts:11 (deleted)",
+      "2. src/old-foo.ts -> src/foo.ts:11",
       "   Check whether this removal is safe.",
       "",
       "DISCUSS",
@@ -138,7 +134,7 @@ describe("composeReviewPrompt", () => {
       "DISCUSS",
       "",
       "Lines:",
-      "1. src/foo.ts:3",
+      "1. src/old-foo.ts -> src/foo.ts:3",
       "   First line",
       "   Second line",
     ].join("\n"));
@@ -154,7 +150,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "working-copy",
+          scope: "change",
           side: "added",
           intent: "fix",
           startLine: 27,
@@ -176,7 +172,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "working-copy",
+          scope: "change",
           side: "added",
           intent: "fix",
           startLine: 27,

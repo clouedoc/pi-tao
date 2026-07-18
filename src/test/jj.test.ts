@@ -106,6 +106,7 @@ describe("JJ workspace integration", () => {
     try {
       await run("jj", ["git", "init", "--colocate", "."], repoRoot);
       await writeFile(join(repoRoot, "README.md"), "initial\n", "utf8");
+      await run("jj", ["describe", "-m", "initial"], repoRoot);
       await run("jj", ["new"], repoRoot);
       await mkdir(join(repoRoot, ".wp"), { recursive: true });
       await run("jj", ["workspace", "add", ".wp/my-workspace"], repoRoot);
@@ -118,21 +119,18 @@ describe("JJ workspace integration", () => {
       const data = await getReviewWindowData(pi as never, workspaceRoot);
 
       expect(data.repoRoot).toBe(workspaceRoot);
-      expect(data.files.filter((file) => file.inWorkingCopy).map((file) => file.path).sort()).toEqual(["README.md", "new.ts"]);
+      expect(data.files.filter((file) => file.inChange).map((file) => file.path).sort()).toEqual(["README.md", "new.ts"]);
       expect(data.files.some((file) => file.path === "outer-only.txt")).toBe(false);
+      expect(data.selectedChange.isWorkingCopy).toBe(true);
+      expect(data.changes.some((change) => !change.isWorkingCopy)).toBe(true);
 
-      const readme = data.files.find((file) => file.path === "README.md")!;
-      expect(readme.inParentChange).toBe(true);
-      expect(readme.inStack).toBe(true);
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "working-copy")).resolves.toEqual({
+      const readme = data.files.find((file) => file.path === "README.md" && file.inChange)!;
+      const stackReadme = data.files.find((file) => file.path === "README.md" && file.inStack)!;
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "change")).resolves.toEqual({
         originalContent: "initial\n",
         modifiedContent: "initial\nworkspace change\n",
       });
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "parent-change")).resolves.toEqual({
-        originalContent: "",
-        modifiedContent: "initial\n",
-      });
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "stack")).resolves.toEqual({
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, stackReadme, "stack")).resolves.toEqual({
         // With no configured remote, JJ's default trunk() is the root commit.
         originalContent: "",
         modifiedContent: "initial\nworkspace change\n",
@@ -142,13 +140,27 @@ describe("JJ workspace integration", () => {
       await rename(join(workspaceRoot, "README.md"), join(workspaceRoot, "RENAMED.md"));
       const withRename = await getReviewWindowData(pi as never, workspaceRoot);
       const renamed = withRename.files.find((file) => file.path === "RENAMED.md")!;
-      expect(renamed.workingCopy?.status).toBe("renamed");
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, renamed, "working-copy")).resolves.toEqual({
+      expect(renamed.change?.status).toBe("renamed");
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, renamed, "change")).resolves.toEqual({
         originalContent: "initial\n",
         modifiedContent: "initial\n",
       });
       await rename(join(workspaceRoot, "RENAMED.md"), join(workspaceRoot, "README.md"));
       await writeFile(join(workspaceRoot, "README.md"), "initial\nworkspace change\n", "utf8");
+
+      const restoredData = await getReviewWindowData(pi as never, workspaceRoot);
+      const restoredStackReadme = restoredData.files.find((file) => file.path === "README.md" && file.inStack)!;
+      const initialChange = restoredData.changes.find((change) => change.description === "initial")!;
+      const olderChange = await getReviewWindowData(pi as never, workspaceRoot, initialChange.commitId);
+      expect(olderChange.selectedChange.isWorkingCopy).toBe(false);
+      expect(olderChange.changes.some((change) => change.commitId === olderChange.selectedChange.commitId)).toBe(true);
+      const olderReadme = olderChange.files.find((file) => file.path === "README.md" && file.inChange)!;
+      expect(olderReadme.id).not.toBe(readme.id);
+      expect(olderChange.files.find((file) => file.path === "README.md" && file.inStack)?.id).toBe(restoredStackReadme.id);
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, olderReadme, "change")).resolves.toEqual({
+        originalContent: "",
+        modifiedContent: "initial\n",
+      });
 
       await writeFile(join(workspaceRoot, "delete-me.txt"), "delete me\n", "utf8");
       await writeFile(join(workspaceRoot, "large-added.txt"), "x".repeat(1_000_001), "utf8");
@@ -160,15 +172,15 @@ describe("JJ workspace integration", () => {
 
       const withLargeFiles = await getReviewWindowData(pi as never, workspaceRoot);
       const deleted = withLargeFiles.files.find((file) => file.path === "delete-me.txt")!;
-      expect(deleted.workingCopy?.status).toBe("deleted");
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, deleted, "working-copy")).resolves.toEqual({
+      expect(deleted.change?.status).toBe("deleted");
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, deleted, "change")).resolves.toEqual({
         originalContent: "delete me\n",
         modifiedContent: "",
       });
       for (const path of ["large-current.txt", "high-churn.txt"]) {
-        expect(withLargeFiles.files.find((file) => file.path === path)?.workingCopy?.isTooLarge, path).toBe(true);
+        expect(withLargeFiles.files.find((file) => file.path === path)?.change?.isTooLarge, path).toBe(true);
       }
-      expect(withLargeFiles.files.find((file) => file.path === "large-added.txt")?.parentChange?.isTooLarge).toBe(true);
+      expect(withLargeFiles.files.find((file) => file.path === "large-added.txt")?.stack?.isTooLarge).toBe(true);
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }

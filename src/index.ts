@@ -20,10 +20,10 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
 
     activeReview = true;
     try {
-      const { repoRoot, files } = await getReviewWindowData(pi, ctx.cwd);
+      const { repoRoot, files, changes, selectedChange } = await getReviewWindowData(pi, ctx.cwd);
       const shortcutConfig = loadCommentShortcuts();
-      if (files.length === 0) {
-        ctx.ui.notify("No reviewable files found in this Jujutsu workspace.", "info");
+      if (files.length === 0 && changes.length === 0) {
+        ctx.ui.notify("No reviewable changes found in this Jujutsu workspace.", "info");
         return;
       }
 
@@ -32,7 +32,10 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
       const { result, files: submittedFiles } = await runReviewApp(ctx, {
         files,
         repoRoot,
+        changes,
+        selectedChange,
         loadFileContents: (activeRepoRoot, file, scope) => loadReviewFileContents(pi, activeRepoRoot, file, scope),
+        loadChange: (revision) => getReviewWindowData(pi, repoRoot, revision),
         commentShortcuts: shortcutConfig.shortcuts,
       });
 

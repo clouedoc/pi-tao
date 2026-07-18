@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ChangeStatus, ReviewFile, ReviewFileComparison, ReviewFileContents, ReviewScope, ReviewWindowData } from "./types.js";
+import type { ChangeStatus, ReviewChange, ReviewFile, ReviewFileComparison, ReviewFileContents, ReviewScope, ReviewWindowData } from "./types.js";
 
 const LARGE_DIFF_MAX_BYTES = 1_000_000;
 const LARGE_DIFF_MAX_CHANGED_LINES = 20_000;
@@ -106,6 +106,14 @@ const JJ_FILE_LIST_TEMPLATE = [
   ` ++ "}\\n"`,
 ].join("");
 
+const JJ_CHANGE_TEMPLATE = [
+  `'\{"commitId":' ++ stringify(commit_id).escape_json()`,
+  ` ++ ',"changeId":' ++ stringify(change_id).escape_json()`,
+  ` ++ ',"description":' ++ description.first_line().escape_json()`,
+  ` ++ ',"bookmarks":' ++ stringify(bookmarks.map(|b| b.name()).join("\\n")).escape_json()`,
+  ` ++ "}\\n"`,
+].join("");
+
 interface JjDiffTemplateEntry {
   status: string;
   sourcePath: string;
@@ -119,6 +127,13 @@ interface JjFileListEntry {
   type: string;
 }
 
+interface JjChangeTemplateEntry {
+  commitId: string;
+  changeId: string;
+  description: string;
+  bookmarks: string;
+}
+
 interface JjRevisionInfo {
   commitId: string;
   parentIds: string[];
@@ -127,11 +142,9 @@ interface JjRevisionInfo {
 interface JjReviewFileSeed {
   path: string;
   hasWorkingCopyFile: boolean;
-  inWorkingCopy: boolean;
-  inParentChange: boolean;
+  inChange: boolean;
   inStack: boolean;
-  workingCopy: ReviewFileComparison | null;
-  parentChange: ReviewFileComparison | null;
+  change: ReviewFileComparison | null;
   stack: ReviewFileComparison | null;
   stackReferenceCount: number;
   stackOutgoingReferences: string[];
@@ -239,6 +252,17 @@ function parseJjFileList(output: string): string[] {
     .map((entry) => normalizeJjPath(entry.path));
 }
 
+async function getReviewChanges(pi: ExtensionAPI, repoRoot: string, workingCopyCommitId: string): Promise<ReviewChange[]> {
+  const output = await runJj(pi, repoRoot, ["log", "--no-graph", "-r", "all() ~ root() ~ merges()", "-T", JJ_CHANGE_TEMPLATE]);
+  return parseJsonLines<JjChangeTemplateEntry>(output, "change list").map((entry) => ({
+    commitId: entry.commitId,
+    changeId: entry.changeId,
+    description: entry.description || "(no description)",
+    bookmarks: entry.bookmarks.length === 0 ? [] : entry.bookmarks.split("\n"),
+    isWorkingCopy: entry.commitId === workingCopyCommitId,
+  }));
+}
+
 function parseRevisionInfo(output: string): JjRevisionInfo {
   const line = output.split(/\r?\n/).find((candidate) => candidate.trim().length > 0);
   if (line == null) throw new Error("jj did not return revision metadata.");
@@ -324,11 +348,9 @@ function createSeed(path: string, hasWorkingCopyFile: boolean): JjReviewFileSeed
   return {
     path,
     hasWorkingCopyFile,
-    inWorkingCopy: false,
-    inParentChange: false,
+    inChange: false,
     inStack: false,
-    workingCopy: null,
-    parentChange: null,
+    change: null,
     stack: null,
     stackReferenceCount: 0,
     stackOutgoingReferences: [],
@@ -338,32 +360,24 @@ function createSeed(path: string, hasWorkingCopyFile: boolean): JjReviewFileSeed
 
 function upsertSeed(
   seeds: Map<string, JjReviewFileSeed>,
-  key: string,
+  mapKey: string,
+  path: string,
   hasWorkingCopyFile: boolean,
 ): JjReviewFileSeed {
-  const existing = seeds.get(key);
+  const existing = seeds.get(mapKey);
   if (existing != null) return existing;
-  const seed = createSeed(key, hasWorkingCopyFile);
-  seeds.set(key, seed);
+  const seed = createSeed(path, hasWorkingCopyFile);
+  seeds.set(mapKey, seed);
   return seed;
 }
 
-async function inspectWorkingFile(repoRoot: string, path: string | null): Promise<{ isTooLarge: boolean; lines: number | null }> {
-  if (path == null) return { isTooLarge: false, lines: null };
+async function isWorkingFileTooLarge(repoRoot: string, path: string | null): Promise<boolean> {
+  if (path == null) return false;
   try {
-    const absolutePath = join(repoRoot, path);
-    const fileStat = await stat(absolutePath);
-    if (!fileStat.isFile()) return { isTooLarge: false, lines: null };
-    if (fileStat.size > LARGE_DIFF_MAX_BYTES) return { isTooLarge: true, lines: null };
-    const content = await readFile(absolutePath);
-    let lines = 0;
-    for (const byte of content) {
-      if (byte === 0x0a) lines += 1;
-    }
-    if (content.length > 0 && content[content.length - 1] !== 0x0a) lines += 1;
-    return { isTooLarge: lines > LARGE_DIFF_MAX_CHANGED_LINES, lines };
+    const fileStat = await stat(join(repoRoot, path));
+    return fileStat.isFile() && fileStat.size > LARGE_DIFF_MAX_BYTES;
   } catch {
-    return { isTooLarge: false, lines: null };
+    return false;
   }
 }
 
@@ -377,11 +391,12 @@ async function getWorkingCopyContent(repoRoot: string, path: string): Promise<st
 
 function buildReviewFileId(seed: JjReviewFileSeed): string {
   return [
+    seed.inChange ? "change" : "stack",
     seed.path,
     seed.hasWorkingCopyFile ? "working" : "gone",
-    seed.workingCopy?.displayPath ?? "",
-    seed.parentChange?.displayPath ?? "",
-    seed.stack?.displayPath ?? "",
+    seed.change?.originalRevision ?? seed.stack?.originalRevision ?? "",
+    seed.change?.modifiedRevision ?? seed.stack?.modifiedRevision ?? "",
+    seed.change?.displayPath ?? seed.stack?.displayPath ?? "",
   ].join("::");
 }
 
@@ -390,11 +405,9 @@ function createReviewFile(seed: JjReviewFileSeed): ReviewFile {
     id: buildReviewFileId(seed),
     path: seed.path,
     hasWorkingCopyFile: seed.hasWorkingCopyFile,
-    inWorkingCopy: seed.inWorkingCopy,
-    inParentChange: seed.inParentChange,
+    inChange: seed.inChange,
     inStack: seed.inStack,
-    workingCopy: seed.workingCopy,
-    parentChange: seed.parentChange,
+    change: seed.change,
     stack: seed.stack,
     stackReferenceCount: seed.stackReferenceCount,
     stackOutgoingReferences: seed.stackOutgoingReferences,
@@ -410,26 +423,24 @@ async function getCurrentPaths(pi: ExtensionAPI, repoRoot: string, revision: str
 async function buildReviewWindowData(
   pi: ExtensionAPI,
   repoRoot: string,
+  revision: string,
 ): Promise<ReviewWindowData> {
-  // This snapshots on-disk changes into @. Later queries use the resulting full
-  // commit IDs so every scope and lazy content read refers to the same trees.
+  // Snapshot on-disk changes into @, then resolve symbolic revisions to exact
+  // commit IDs so lazy content reads keep using the same trees.
   const workingCopy = await getRevisionInfo(pi, repoRoot, "@");
-  if (workingCopy.parentIds.length !== 1) {
-    throw new Error("Slopchop cannot yet review a JJ working-copy merge. Create or edit a single-parent change and try again.");
+  const selectedRevision = await getRevisionInfo(pi, repoRoot, revision);
+  if (selectedRevision.parentIds.length !== 1) {
+    throw new Error("Slopchop cannot yet review a JJ merge change. Pick a single-parent change and try again.");
   }
 
-  const workingParent = await getRevisionInfo(pi, repoRoot, workingCopy.parentIds[0]!);
-  let workingChanges: ChangedPath[];
+  const selectedParent = await getRevisionInfo(pi, repoRoot, selectedRevision.parentIds[0]!);
+  let selectedChanges: ChangedPath[];
   try {
-    workingChanges = await getJjRangeChanges(pi, repoRoot, workingParent.commitId, workingCopy.commitId);
+    selectedChanges = await getJjRangeChanges(pi, repoRoot, selectedParent.commitId, selectedRevision.commitId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not read JJ diff metadata. Slopchop requires jj 0.31 or newer. ${message}`);
   }
-
-  const parentChanges = workingParent.parentIds.length === 1
-    ? await getJjRangeChanges(pi, repoRoot, workingParent.parentIds[0]!, workingParent.commitId)
-    : [];
 
   const trunk = await getOptionalRevisionInfo(pi, repoRoot, "trunk()");
   const forkPoint = trunk == null
@@ -439,18 +450,24 @@ async function buildReviewWindowData(
     ? []
     : await getJjRangeChanges(pi, repoRoot, forkPoint.commitId, workingCopy.commitId);
 
+  const changes = await getReviewChanges(pi, repoRoot, workingCopy.commitId);
+  const selectedChange = changes.find((change) => change.commitId === selectedRevision.commitId);
+  if (selectedChange == null) {
+    throw new Error(`Could not find selected JJ change ${revision}.`);
+  }
+
   const currentPaths = await getCurrentPaths(pi, repoRoot, workingCopy.commitId);
   const currentPathSet = new Set(currentPaths);
   const seeds = new Map<string, JjReviewFileSeed>();
-  const workingInspectionCache = new Map<string, Promise<{ isTooLarge: boolean; lines: number | null }>>();
+  const workingInspectionCache = new Map<string, Promise<boolean>>();
   const changedLineCache = new Map<string, Promise<number | null>>();
 
   const inspectWorkingTarget = (path: string | null) => {
-    if (path == null) return Promise.resolve({ isTooLarge: false, lines: null });
+    if (path == null) return Promise.resolve(false);
     const normalized = normalizeJjPath(path);
     let inspection = workingInspectionCache.get(normalized);
     if (inspection == null) {
-      inspection = inspectWorkingFile(repoRoot, normalized);
+      inspection = isWorkingFileTooLarge(repoRoot, normalized);
       workingInspectionCache.set(normalized, inspection);
     }
     return inspection;
@@ -467,36 +484,29 @@ async function buildReviewWindowData(
     return count;
   };
   const inspectComparison = async (change: ChangedPath, fromRevision: string, toRevision: string) => {
-    const [workingTarget, changedLines] = await Promise.all([
-      inspectWorkingTarget(change.newPath),
+    const [workingFileTooLarge, changedLines] = await Promise.all([
+      toRevision === workingCopy.commitId
+        ? inspectWorkingTarget(change.newPath)
+        : Promise.resolve(false),
       getCachedChangedLines(fromRevision, toRevision, change),
     ]);
     return {
-      lines: workingTarget.lines,
-      isTooLarge: workingTarget.isTooLarge
+      changedLines,
+      isTooLarge: workingFileTooLarge
         || (changedLines != null && changedLines > LARGE_DIFF_MAX_CHANGED_LINES),
     };
   };
 
-  for (const change of workingChanges) {
+  for (const change of selectedChanges) {
     const key = getChangeKey(change);
-    const inspection = await inspectComparison(change, workingParent.commitId, workingCopy.commitId);
-    const seed = upsertSeed(seeds, key, change.newPath != null && currentPathSet.has(normalizeJjPath(change.newPath)));
-    seed.hasWorkingCopyFile = change.newPath != null;
-    seed.inWorkingCopy = true;
-    seed.workingCopy = toComparison(change, workingParent.commitId, workingCopy.commitId, inspection.isTooLarge);
-    if (change.status === "added" && inspection.lines != null) {
-      seed.workingCopy.additions = inspection.lines;
-      seed.workingCopy.deletions = 0;
+    const inspection = await inspectComparison(change, selectedParent.commitId, selectedRevision.commitId);
+    const seed = upsertSeed(seeds, `change::${key}`, key, change.newPath != null && currentPathSet.has(normalizeJjPath(change.newPath)));
+    seed.inChange = true;
+    seed.change = toComparison(change, selectedParent.commitId, selectedRevision.commitId, inspection.isTooLarge);
+    if (change.status === "added" && inspection.changedLines != null) {
+      seed.change.additions = inspection.changedLines;
+      seed.change.deletions = 0;
     }
-  }
-
-  for (const change of parentChanges) {
-    const key = getChangeKey(change);
-    const inspection = await inspectComparison(change, workingParent.parentIds[0]!, workingParent.commitId);
-    const seed = upsertSeed(seeds, key, change.newPath != null && currentPathSet.has(normalizeJjPath(change.newPath)));
-    seed.inParentChange = true;
-    seed.parentChange = toComparison(change, workingParent.parentIds[0]!, workingParent.commitId, inspection.isTooLarge);
   }
 
   if (forkPoint != null) {
@@ -512,7 +522,7 @@ async function buildReviewWindowData(
     for (const change of stackChanges) {
       const key = getChangeKey(change);
       const inspection = await inspectComparison(change, forkPoint.commitId, workingCopy.commitId);
-      const seed = upsertSeed(seeds, key, change.newPath != null && currentPathSet.has(normalizeJjPath(change.newPath)));
+      const seed = upsertSeed(seeds, `stack::${key}`, key, change.newPath != null && currentPathSet.has(normalizeJjPath(change.newPath)));
       seed.inStack = true;
       seed.stack = toComparison(change, forkPoint.commitId, workingCopy.commitId, inspection.isTooLarge);
       seed.stackReferenceCount = references.counts.get(key) ?? 0;
@@ -521,17 +531,11 @@ async function buildReviewWindowData(
     }
   }
 
-  if (seeds.size === 0) {
-    for (const path of currentPaths) {
-      const seed = createSeed(path, true);
-      seed.inStack = true;
-      seeds.set(path, seed);
-    }
-  }
-
   return {
     repoRoot,
     files: [...seeds.values()].map(createReviewFile).sort((a, b) => a.path.localeCompare(b.path)),
+    changes,
+    selectedChange,
   };
 }
 
@@ -579,13 +583,13 @@ async function getJjRevisionContent(
   throw new Error(message || `Could not read ${path} at JJ revision ${revision}.`);
 }
 
-export async function getReviewWindowData(pi: ExtensionAPI, cwd: string): Promise<ReviewWindowData> {
+export async function getReviewWindowData(pi: ExtensionAPI, cwd: string, revision = "@"): Promise<ReviewWindowData> {
   const result = await pi.exec("jj", ["--no-pager", "--color=never", "root"], { cwd });
   const repoRoot = result.stdout.trim();
   if (result.code !== 0 || repoRoot.length === 0) {
     throw new Error("Not inside a Jujutsu workspace.");
   }
-  return buildReviewWindowData(pi, repoRoot);
+  return buildReviewWindowData(pi, repoRoot, revision);
 }
 
 export async function loadReviewFileContents(
@@ -594,7 +598,7 @@ export async function loadReviewFileContents(
   file: ReviewFile,
   scope: ReviewScope,
 ): Promise<ReviewFileContents> {
-  const comparison = scope === "working-copy" ? file.workingCopy : scope === "parent-change" ? file.parentChange : file.stack;
+  const comparison = scope === "change" ? file.change : file.stack;
   if (scope === "stack" && comparison == null) {
     const content = file.hasWorkingCopyFile ? await getWorkingCopyContent(repoRoot, file.path) : "";
     return { originalContent: content, modifiedContent: content };

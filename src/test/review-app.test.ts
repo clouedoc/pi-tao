@@ -1,19 +1,17 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { buildStructuredDiff } from "../diff.js";
-import type { DiffReviewComment, ReviewFile, ReviewState } from "../types.js";
-import { buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, formatFocusStatus, formatPaneTitle, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, parseMouseWheelInput, renderCenteredOverlay, shouldStackPanes } from "../ui/review-app.js";
+import type { DiffReviewComment, ReviewChange, ReviewFile, ReviewState } from "../types.js";
+import { buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, filterReviewChanges, formatFocusStatus, formatPaneTitle, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, parseMouseWheelInput, renderCenteredOverlay, shouldStackPanes } from "../ui/review-app.js";
 
 function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
   return {
     id: path,
     path,
     hasWorkingCopyFile: true,
-    inWorkingCopy: false,
-    inParentChange: false,
+    inChange: false,
     inStack: true,
-    workingCopy: null,
-    parentChange: null,
+    change: null,
     stack: null,
     ...flags,
   };
@@ -21,7 +19,7 @@ function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
 
 function makeState(draft?: Partial<ReviewState["draft"]>): ReviewState {
   return {
-    activeScope: "working-copy",
+    activeScope: "change",
     activeFileId: "src/app.ts",
     searchQuery: "",
     focus: "diff",
@@ -39,9 +37,9 @@ function makeState(draft?: Partial<ReviewState["draft"]>): ReviewState {
 }
 
 const lineComment: DiffReviewComment = {
-  id: "line:working-copy:src/app.ts:added:2",
+  id: "line:change:src/app.ts:added:2",
   fileId: "src/app.ts",
-  scope: "working-copy",
+  scope: "change",
   side: "added",
   intent: "fix",
   startLine: 2,
@@ -100,7 +98,7 @@ describe("side-by-side diff helpers", () => {
 });
 
 describe("getEditorLineForTarget", () => {
-  it("maps deleted lines to the nearest surviving working-copy line", () => {
+  it("maps deleted lines to the nearest surviving change line", () => {
     const diff = buildStructuredDiff(
       ["alpha", "removed", "kept"].join("\n") + "\n",
       ["alpha", "kept"].join("\n") + "\n",
@@ -146,6 +144,20 @@ describe("pane layout", () => {
       diffHeight: 6,
       commentsHeight: 0,
     });
+  });
+});
+
+describe("change picker", () => {
+  const changes: ReviewChange[] = [
+    { changeId: "wxyz1234", commitId: "a".repeat(40), description: "add parser", bookmarks: ["feature"], isWorkingCopy: true },
+    { changeId: "abcd5678", commitId: "b".repeat(40), description: "update docs", bookmarks: [], isWorkingCopy: false },
+  ];
+
+  it("filters changes by IDs, bookmarks, and description", () => {
+    expect(filterReviewChanges(changes, "feature")).toEqual([changes[0]]);
+    expect(filterReviewChanges(changes, "BBBB")).toEqual([changes[1]]);
+    expect(filterReviewChanges(changes, "docs")).toEqual([changes[1]]);
+    expect(filterReviewChanges(changes, "")).toEqual(changes);
   });
 });
 
@@ -256,7 +268,7 @@ describe("focused panel feedback", () => {
 
 describe("action and shortcut help rendering", () => {
   it("keeps the persistent footer concise and panel-scoped", () => {
-    const lines = buildFooterLines(plainTheme as any, "Tab focus • / search • ? help • 1/2/3 scopes • h hide comments • o open in $EDITOR • s submit • Esc exit", 80);
+    const lines = buildFooterLines(plainTheme as any, "Tab focus • / search • ? help • 1/2 scopes • h hide comments • o open in $EDITOR • s submit • Esc exit", 80);
 
     expect(lines).toHaveLength(2);
     expect(lines[1]).not.toContain("navigator:");

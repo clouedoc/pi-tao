@@ -1,6 +1,29 @@
 export type ReviewScope = "git-diff" | "last-commit" | "all-files";
 
-export type ChangeStatus = "modified" | "added" | "deleted" | "renamed";
+export type ReviewBackendKind = "git" | "jj";
+
+export type ReviewScopeLabels = Readonly<Record<ReviewScope, string>>;
+
+export const GIT_SCOPE_LABELS: ReviewScopeLabels = {
+  "git-diff": "git diff",
+  "last-commit": "last commit",
+  "all-files": "all files",
+};
+
+export const JJ_SCOPE_LABELS: ReviewScopeLabels = {
+  "git-diff": "working copy",
+  "last-commit": "parent change",
+  "all-files": "stack vs trunk",
+};
+
+export interface ReviewWindowData {
+  backend: ReviewBackendKind;
+  repoRoot: string;
+  files: ReviewFile[];
+  scopeLabels: ReviewScopeLabels;
+}
+
+export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "copied";
 
 export interface ReviewFileComparison {
   status: ChangeStatus;
@@ -41,6 +64,8 @@ export type ReviewSubmoduleByScope = Partial<Record<ReviewScope, ReviewSubmodule
 export interface ReviewFile {
   id: string;
   path: string;
+  /** VCS backend that produced this file's comparison metadata. Defaults to Git for legacy callers. */
+  reviewBackend?: ReviewBackendKind;
   /** Parent repo path prefix used when rendering nested review file paths. */
   pathPrefix?: string;
   worktreeStatus: ChangeStatus | null;
@@ -115,12 +140,8 @@ export interface ReviewCancelPayload {
 
 export type ReviewResult = ReviewSubmitPayload | ReviewCancelPayload;
 
-export function formatScopeLabel(scope: ReviewScope): string {
-  switch (scope) {
-    case "git-diff": return "git diff";
-    case "last-commit": return "last commit";
-    case "all-files": return "all files";
-  }
+export function formatScopeLabel(scope: ReviewScope, labels: ReviewScopeLabels = GIT_SCOPE_LABELS): string {
+  return labels[scope];
 }
 
 export function scopeFileKey(scope: ReviewScope, fileId: string): string {
@@ -153,7 +174,7 @@ export function joinReviewPath(prefix: string | undefined, path: string): string
 }
 
 function getPrefixedComparisonDisplayPath(prefix: string | undefined, comparison: ReviewFileComparison): string {
-  if (comparison.status === "renamed" && comparison.oldPath != null && comparison.newPath != null) {
+  if ((comparison.status === "renamed" || comparison.status === "copied") && comparison.oldPath != null && comparison.newPath != null) {
     return `${joinReviewPath(prefix, comparison.oldPath)} -> ${joinReviewPath(prefix, comparison.newPath)}`;
   }
 

@@ -12,11 +12,13 @@ The goal is simple: keep terminal-based review within Pi, keep annotations preci
 
 Use `/slopchop` or `/diff` when you want to review and annotate work before sending the agent another turn.
 
-It supports three review scopes:
+It supports Git repositories and Jujutsu (`jj`) workspaces with three review scopes:
 
-- `git diff`
-- `last commit`
-- `all files`
+| Scope | Git | Jujutsu |
+| --- | --- | --- |
+| `1` | `git diff` | `working copy` (`@-` to `@`) |
+| `2` | `last commit` | `parent change` (`@--` to `@-`) |
+| `3` | `all files` | `stack vs trunk` (fork point with `trunk()` to `@`) |
 
 Inside the review UI you can:
 
@@ -45,7 +47,7 @@ Then restart Pi or run `/reload`.
 
 ### Run it
 
-Inside a git repo in Pi:
+Inside a Git repository or JJ workspace in Pi:
 
 ```text
 /slopchop
@@ -68,20 +70,25 @@ Configure the shortcut with `globalShortcut` in `~/.pi/agent/extensions/slopchop
 ### Basic flow
 
 1. Run `/slopchop` or `/diff`
-2. Pick a scope:
+2. Pick a scope. In Git repositories:
    - `git diff` — review your current uncommitted working tree changes against `HEAD`
    - `last commit` — review the most recent commit against its parent
    - `all files` — review files changed on the current branch compared with the default branch; if there are no changed scopes, falls back to current file contents
 
+   In JJ workspaces:
+   - `working copy` — review the current working-copy change, from its parent to `@`
+   - `parent change` — review the change immediately below the working copy
+   - `stack vs trunk` — review the current stack from `fork_point(trunk() | @)` through `@`
+
    By default, the review UI opens the first scope that makes sense for the repo in this order:
-   - `git diff` if there are uncommitted changes
-   - otherwise `all files` if the current branch differs from the default branch
-   - otherwise `last commit` if there is a reviewable last commit
-   - otherwise `all files` as a current-file fallback
+   - `git diff` / `working copy` if the current working copy has changes
+   - otherwise `all files` / `stack vs trunk` if the current branch or stack differs from its base
+   - otherwise `last commit` / `parent change` if that change is reviewable
+   - otherwise the current-file fallback
 
    In the branch-level `all files` scope, files are ordered for review priority: changed files referenced by more other changed files come first, then modified/renamed before added before deleted, then source files before tests/docs/changesets, then path order. The navigator can filter to files related to the active file with `r`. In related mode, `→` means the active file references that file, `←` means that file references the active file, and `↔` means both. Press `r` again to return to all files.
 
-   Changed submodules appear as normal review rows with a `↗` marker. Press `Enter` or `→` to review the exact nested commit range, and press `b` to return to the parent review. File-level comments on the parent submodule row are included in the final prompt.
+   Changed Git submodules appear as normal review rows with a `↗` marker. Press `Enter` or `→` to review the exact nested commit range, and press `b` to return to the parent review. File-level comments on the parent submodule row are included in the final prompt.
 3. Move to the file and line you care about; press `v` when you want side-by-side diff view
 4. Add annotations:
    - `f` for a line annotation with `FIX` preselected

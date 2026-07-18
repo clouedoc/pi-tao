@@ -347,6 +347,7 @@ function createReviewFile(seed: ReviewFileSeed): ReviewFile {
   return {
     id: buildReviewFileId(seed.path, seed.hasWorkingTreeFile, seed.gitDiff, seed.lastCommit, seed.allFiles),
     path: seed.path,
+    reviewBackend: "git",
     worktreeStatus: seed.worktreeStatus,
     hasWorkingTreeFile: seed.hasWorkingTreeFile,
     inGitDiff: seed.inGitDiff,

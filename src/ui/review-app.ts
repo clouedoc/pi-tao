@@ -35,7 +35,7 @@ import { detectPiLanguage, highlightCodeLineWithPi } from "../pi-render.js";
 import { getShortcutConfigPath, getShortcutsForSide, type CommentShortcut } from "../shortcuts.js";
 import { filterFilesBySearch } from "../search.js";
 import { highlightJsonLine, highlightMarkdownLine } from "../theme-highlight.js";
-import type { CommentIntent, DiffReviewComment, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewState, ReviewSubmoduleInfo } from "../types.js";
+import type { CommentIntent, DiffReviewComment, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewScopeLabels, ReviewState, ReviewSubmoduleInfo } from "../types.js";
 import { formatIntentLabel, formatScopeLabel, getReviewFileDisplayPath, getSubmoduleInfo, hasExactSubmoduleRange, isSubmoduleReviewFile, joinReviewPath } from "../types.js";
 
 interface LoadedEntryReady {
@@ -66,6 +66,7 @@ type CommentPanelItem =
 
 interface ReviewFrame {
   repoRoot: string;
+  scopeLabels: ReviewScopeLabels;
   pathPrefix?: string;
   files: ReviewFile[];
   state: ReviewState;
@@ -81,8 +82,9 @@ interface ReviewAppOptions {
   files: ReviewFile[];
   repoRoot: string;
   loadFileContents: (repoRoot: string, file: ReviewFile, scope: ReviewScope) => Promise<ReviewFileContents>;
-  loadSubmoduleReviewData: (submodule: ReviewSubmoduleInfo) => Promise<{ repoRoot: string; files: ReviewFile[] }>;
+  loadSubmoduleReviewData: (submodule: ReviewSubmoduleInfo) => Promise<{ repoRoot: string; files: ReviewFile[]; scopeLabels: ReviewScopeLabels }>;
   commentShortcuts: CommentShortcut[];
+  scopeLabels: ReviewScopeLabels;
   notify: ExtensionContext["ui"]["notify"];
 }
 
@@ -296,6 +298,7 @@ function getStatusLabel(file: ReviewFile | null, scope: ReviewScope): string {
     case "added": return "A";
     case "deleted": return "D";
     case "renamed": return "R";
+    case "copied": return "C";
     case "modified": return "M";
     default: return "·";
   }
@@ -817,6 +820,7 @@ class ReviewApp {
   focused = false;
 
   private repoRoot: string;
+  private scopeLabels: ReviewScopeLabels;
   private files: ReviewFile[];
   private state: ReviewState;
   private cache = new Map<string, LoadedEntry>();
@@ -857,6 +861,7 @@ class ReviewApp {
     private readonly options: ReviewAppOptions,
   ) {
     this.repoRoot = options.repoRoot;
+    this.scopeLabels = options.scopeLabels;
     this.files = options.files;
     this.state = ensureActiveFile(createInitialReviewState(this.files), this.files);
     this.searchBuffer = this.state.searchQuery;
@@ -994,6 +999,7 @@ class ReviewApp {
   private saveCurrentFrame(): ReviewFrame {
     return {
       repoRoot: this.repoRoot,
+      scopeLabels: this.scopeLabels,
       pathPrefix: this.currentPathPrefix(),
       files: this.files,
       state: this.state,
@@ -1008,6 +1014,7 @@ class ReviewApp {
 
   private restoreFrame(frame: ReviewFrame): void {
     this.repoRoot = frame.repoRoot;
+    this.scopeLabels = frame.scopeLabels;
     this.files = frame.files;
     this.state = frame.state;
     this.cache = frame.cache;
@@ -1150,6 +1157,7 @@ class ReviewApp {
 
       this.frameStack.push(currentFrame);
       this.repoRoot = reviewData.repoRoot;
+      this.scopeLabels = reviewData.scopeLabels;
       this.files = prefixedFiles;
       this.state = ensureActiveFile(createInitialReviewState(prefixedFiles), prefixedFiles);
       this.cache = new Map();
@@ -2207,7 +2215,7 @@ class ReviewApp {
 
     const entry = this.getEntry(file.id, this.state.activeScope);
     lines.push(this.theme.fg("muted", getScopeDisplayPath(file, this.state.activeScope)));
-    lines.push(this.theme.fg("dim", `${formatScopeLabel(this.state.activeScope)} • view ${formatDiffViewModeLabel(this.diffViewMode)} • wrap ${this.state.wrapLines ? "on" : "off"}${this.state.activeScope === "all-files" ? "" : ` • unchanged ${this.state.hideUnchanged ? "hidden" : "shown"}`}`));
+    lines.push(this.theme.fg("dim", `${formatScopeLabel(this.state.activeScope, this.scopeLabels)} • view ${formatDiffViewModeLabel(this.diffViewMode)} • wrap ${this.state.wrapLines ? "on" : "off"}${this.state.activeScope === "all-files" ? "" : ` • unchanged ${this.state.hideUnchanged ? "hidden" : "shown"}`}`));
     lines.push("");
 
     const submodule = getSubmoduleInfo(file, this.state.activeScope);
@@ -2257,7 +2265,7 @@ class ReviewApp {
     const language = detectPiLanguage(file.path);
     this.state = clampSelectedLineTarget(this.state, file.id, this.state.activeScope, visibleTargets);
     const selectedTarget = getSelectedLineTarget(this.state, file.id, this.state.activeScope);
-    lines[1] = this.theme.fg("dim", `${formatScopeLabel(this.state.activeScope)} • view ${formatDiffViewModeLabel(this.diffViewMode)} • ${formatSelectedLineTargetLabel(selectedTarget)} • wrap ${this.state.wrapLines ? "on" : "off"}${this.state.activeScope === "all-files" ? "" : ` • unchanged ${this.state.hideUnchanged ? "hidden" : "shown"}`}`);
+    lines[1] = this.theme.fg("dim", `${formatScopeLabel(this.state.activeScope, this.scopeLabels)} • view ${formatDiffViewModeLabel(this.diffViewMode)} • ${formatSelectedLineTargetLabel(selectedTarget)} • wrap ${this.state.wrapLines ? "on" : "off"}${this.state.activeScope === "all-files" ? "" : ` • unchanged ${this.state.hideUnchanged ? "hidden" : "shown"}`}`);
     let rendered: string[];
     let selectedIndex = 0;
 
@@ -2481,7 +2489,7 @@ class ReviewApp {
     const scopeTabs = SEARCHABLE_SCOPES.map((scope, index) => {
       const active = this.state.activeScope === scope;
       const count = getScopedFiles(this.files, scope).length;
-      const text = `${index + 1}:${formatScopeLabel(scope)}(${count})`;
+      const text = `${index + 1}:${formatScopeLabel(scope, this.scopeLabels)}(${count})`;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
     }).join(" ");
 

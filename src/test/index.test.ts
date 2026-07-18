@@ -13,7 +13,7 @@ vi.mock("../shortcuts.js", () => ({
   loadCommentShortcuts: mocks.loadCommentShortcuts,
 }));
 
-vi.mock("../git.js", () => ({
+vi.mock("../repository.js", () => ({
   getReviewWindowData: mocks.getReviewWindowData,
   getSubmoduleReviewWindowData: mocks.getSubmoduleReviewWindowData,
   loadReviewFileContents: mocks.loadReviewFileContents,
@@ -77,7 +77,12 @@ describe("slop review extension", () => {
     const initialFiles = [{ id: "root", path: "submodule-1" }];
     const nestedFiles = [{ id: "nested", path: "README.md" }];
 
-    mocks.getReviewWindowData.mockResolvedValueOnce({ repoRoot: "/repo", files: initialFiles });
+    mocks.getReviewWindowData.mockResolvedValueOnce({
+      backend: "git",
+      repoRoot: "/repo",
+      files: initialFiles,
+      scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
+    });
     mocks.getSubmoduleReviewWindowData.mockResolvedValueOnce({ repoRoot: "/repo/submodule-1", files: nestedFiles });
     mocks.runReviewApp.mockImplementation(async (_ctx, options) => {
       await options.loadSubmoduleReviewData({
@@ -99,6 +104,9 @@ describe("slop review extension", () => {
 
     expect(mocks.getSubmoduleReviewWindowData).toHaveBeenCalledWith(pi, "/repo/submodule-1", "abc123", "def456");
     expect(mocks.getReviewWindowData).toHaveBeenCalledTimes(1);
+    expect(mocks.runReviewApp).toHaveBeenCalledWith(ctx, expect.objectContaining({
+      scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
+    }));
   });
 
   it("falls back to nested working tree review when a submodule pointer has no exact range", async () => {
@@ -120,15 +128,30 @@ describe("slop review extension", () => {
     const nestedFiles = [{ id: "nested", path: "submodule-1/README.md" }];
 
     mocks.getReviewWindowData
-      .mockResolvedValueOnce({ repoRoot: "/repo", files: initialFiles })
-      .mockResolvedValueOnce({ repoRoot: "/repo/submodule-1", files: nestedFiles });
+      .mockResolvedValueOnce({
+        backend: "git",
+        repoRoot: "/repo",
+        files: initialFiles,
+        scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
+      })
+      .mockResolvedValueOnce({
+        backend: "jj",
+        repoRoot: "/repo/submodule-1",
+        files: nestedFiles,
+        scopeLabels: { "git-diff": "working copy", "last-commit": "parent change", "all-files": "stack vs trunk" },
+      });
     mocks.runReviewApp.mockImplementation(async (_ctx, options) => {
-      await options.loadSubmoduleReviewData({
+      const nestedData = await options.loadSubmoduleReviewData({
         repoRoot: "/repo/submodule-1",
         path: "submodule-1",
         oldSha: "abc123",
         newSha: "abc123",
         available: true,
+      });
+      expect(nestedData.scopeLabels).toEqual({
+        "git-diff": "working copy",
+        "last-commit": "parent change",
+        "all-files": "stack vs trunk",
       });
       return {
         result: { type: "submit", allComment: "", allIntent: "fix", comments: [] },

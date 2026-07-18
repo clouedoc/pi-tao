@@ -1,8 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getReviewWindowData, getSubmoduleReviewWindowData, loadReviewFileContents } from "./git.js";
+import { getReviewWindowData, getSubmoduleReviewWindowData, loadReviewFileContents } from "./repository.js";
 import { composeReviewPrompt } from "./prompt.js";
 import { loadCommentShortcuts } from "./shortcuts.js";
-import { hasExactSubmoduleRange } from "./types.js";
+import { GIT_SCOPE_LABELS, hasExactSubmoduleRange } from "./types.js";
 import { runReviewApp } from "./ui/review-app.js";
 
 export default function slopReviewExtension(pi: ExtensionAPI) {
@@ -22,10 +22,10 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
 
     activeReview = true;
     try {
-      const { repoRoot, files } = await getReviewWindowData(pi, ctx.cwd);
+      const { repoRoot, files, scopeLabels } = await getReviewWindowData(pi, ctx.cwd);
       const shortcutConfig = loadCommentShortcuts();
       if (files.length === 0) {
-        ctx.ui.notify("No reviewable files found for git diff, last commit, or all files.", "info");
+        ctx.ui.notify("No reviewable files found for the current repository.", "info");
         return;
       }
 
@@ -35,14 +35,16 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
         files,
         repoRoot,
         loadFileContents: (activeRepoRoot, file, scope) => loadReviewFileContents(pi, activeRepoRoot, file, scope),
-        loadSubmoduleReviewData: (submodule) => {
+        loadSubmoduleReviewData: async (submodule) => {
           if (hasExactSubmoduleRange(submodule)) {
-            return getSubmoduleReviewWindowData(pi, submodule.repoRoot, submodule.oldSha, submodule.newSha);
+            const data = await getSubmoduleReviewWindowData(pi, submodule.repoRoot, submodule.oldSha, submodule.newSha);
+            return { ...data, scopeLabels: GIT_SCOPE_LABELS };
           }
 
           return getReviewWindowData(pi, submodule.repoRoot);
         },
         commentShortcuts: shortcutConfig.shortcuts,
+        scopeLabels,
       });
 
       if (result.type === "cancel") {

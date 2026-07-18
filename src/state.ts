@@ -15,7 +15,7 @@ export function getDefaultScope(files: ReviewFile[]): ReviewScope {
 
 function getAllFilesStatusRank(status: ChangeStatus | null | undefined): number {
   if (status === "modified" || status === "renamed") return 0;
-  if (status === "added") return 1;
+  if (status === "added" || status === "copied") return 1;
   if (status === "deleted") return 2;
   return 3;
 }

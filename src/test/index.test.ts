@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   loadCommentShortcuts: vi.fn(),
   getReviewWindowData: vi.fn(),
-  getSubmoduleReviewWindowData: vi.fn(),
   loadReviewFileContents: vi.fn(),
   composeReviewPrompt: vi.fn(),
   runReviewApp: vi.fn(),
@@ -13,9 +12,8 @@ vi.mock("../shortcuts.js", () => ({
   loadCommentShortcuts: mocks.loadCommentShortcuts,
 }));
 
-vi.mock("../repository.js", () => ({
+vi.mock("../jj.js", () => ({
   getReviewWindowData: mocks.getReviewWindowData,
-  getSubmoduleReviewWindowData: mocks.getSubmoduleReviewWindowData,
   loadReviewFileContents: mocks.loadReviewFileContents,
 }));
 
@@ -59,7 +57,7 @@ describe("slop review extension", () => {
     expect(ctx.ui.notify).toHaveBeenNthCalledWith(2, "slopchop config: bad shortcut config", "warning");
   });
 
-  it("loads exact submodule ranges with the range review data loader", async () => {
+  it("opens the Jujutsu review and inserts the generated prompt", async () => {
     const commands = new Map<string, { handler: (args: string, ctx: { cwd: string; hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn>; setEditorText: ReturnType<typeof vi.fn> } }) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
@@ -74,96 +72,22 @@ describe("slop review extension", () => {
         setEditorText: vi.fn(),
       },
     };
-    const initialFiles = [{ id: "root", path: "submodule-1" }];
-    const nestedFiles = [{ id: "nested", path: "README.md" }];
-
-    mocks.getReviewWindowData.mockResolvedValueOnce({
-      backend: "git",
-      repoRoot: "/repo",
-      files: initialFiles,
-      scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
-    });
-    mocks.getSubmoduleReviewWindowData.mockResolvedValueOnce({ repoRoot: "/repo/submodule-1", files: nestedFiles });
-    mocks.runReviewApp.mockImplementation(async (_ctx, options) => {
-      await options.loadSubmoduleReviewData({
-        repoRoot: "/repo/submodule-1",
-        path: "submodule-1",
-        oldSha: "abc123",
-        newSha: "def456",
-        available: true,
-      });
-      return {
-        result: { type: "submit", allComment: "", allIntent: "fix", comments: [] },
-        files: nestedFiles,
-      };
-    });
+    const files = [{ id: "README.md", path: "README.md" }];
+    const result = { type: "submit", allComment: "Review this.", allIntent: "fix", comments: [] };
+    mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/repo", files });
+    mocks.runReviewApp.mockResolvedValue({ result, files });
     mocks.composeReviewPrompt.mockReturnValue("prompt body");
 
     slopReviewExtension(pi as never);
     await commands.get("slopchop")?.handler("", ctx);
 
-    expect(mocks.getSubmoduleReviewWindowData).toHaveBeenCalledWith(pi, "/repo/submodule-1", "abc123", "def456");
-    expect(mocks.getReviewWindowData).toHaveBeenCalledTimes(1);
+    expect(mocks.getReviewWindowData).toHaveBeenCalledWith(pi, "/repo");
     expect(mocks.runReviewApp).toHaveBeenCalledWith(ctx, expect.objectContaining({
-      scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
+      repoRoot: "/repo",
+      files,
+      commentShortcuts: [],
     }));
-  });
-
-  it("falls back to nested working tree review when a submodule pointer has no exact range", async () => {
-    const commands = new Map<string, { handler: (args: string, ctx: { cwd: string; hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn>; setEditorText: ReturnType<typeof vi.fn> } }) => Promise<void> }>();
-    const pi = {
-      registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
-      registerShortcut: vi.fn(),
-      on: vi.fn(),
-    };
-    const ctx = {
-      cwd: "/repo",
-      hasUI: true,
-      ui: {
-        notify: vi.fn(),
-        setEditorText: vi.fn(),
-      },
-    };
-    const initialFiles = [{ id: "root", path: "submodule-1" }];
-    const nestedFiles = [{ id: "nested", path: "submodule-1/README.md" }];
-
-    mocks.getReviewWindowData
-      .mockResolvedValueOnce({
-        backend: "git",
-        repoRoot: "/repo",
-        files: initialFiles,
-        scopeLabels: { "git-diff": "git diff", "last-commit": "last commit", "all-files": "all files" },
-      })
-      .mockResolvedValueOnce({
-        backend: "jj",
-        repoRoot: "/repo/submodule-1",
-        files: nestedFiles,
-        scopeLabels: { "git-diff": "working copy", "last-commit": "parent change", "all-files": "stack vs trunk" },
-      });
-    mocks.runReviewApp.mockImplementation(async (_ctx, options) => {
-      const nestedData = await options.loadSubmoduleReviewData({
-        repoRoot: "/repo/submodule-1",
-        path: "submodule-1",
-        oldSha: "abc123",
-        newSha: "abc123",
-        available: true,
-      });
-      expect(nestedData.scopeLabels).toEqual({
-        "git-diff": "working copy",
-        "last-commit": "parent change",
-        "all-files": "stack vs trunk",
-      });
-      return {
-        result: { type: "submit", allComment: "", allIntent: "fix", comments: [] },
-        files: nestedFiles,
-      };
-    });
-    mocks.composeReviewPrompt.mockReturnValue("prompt body");
-
-    slopReviewExtension(pi as never);
-    await commands.get("slopchop")?.handler("", ctx);
-
-    expect(mocks.getSubmoduleReviewWindowData).not.toHaveBeenCalled();
-    expect(mocks.getReviewWindowData).toHaveBeenNthCalledWith(2, pi, "/repo/submodule-1");
+    expect(mocks.composeReviewPrompt).toHaveBeenCalledWith(files, result);
+    expect(ctx.ui.setEditorText).toHaveBeenCalledWith("prompt body");
   });
 });

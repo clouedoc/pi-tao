@@ -16,7 +16,7 @@ function formatLocation(comment: DiffReviewComment, file: ReviewFile | undefined
     ? `${comment.startLine}-${comment.endLine}`
     : `${comment.startLine}`;
 
-  if (comment.scope === "all-files") {
+  if (comment.scope === "stack") {
     return `${filePath}:${lineRange}`;
   }
 
@@ -26,9 +26,9 @@ function formatLocation(comment: DiffReviewComment, file: ReviewFile | undefined
 
 function scopeOrder(scope: ReviewScope): number {
   switch (scope) {
-    case "git-diff": return 0;
-    case "last-commit": return 1;
-    case "all-files": return 2;
+    case "working-copy": return 0;
+    case "parent-change": return 1;
+    case "stack": return 2;
   }
 }
 

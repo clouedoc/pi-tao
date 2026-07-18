@@ -8,21 +8,20 @@ function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
   return {
     id: path,
     path,
-    worktreeStatus: null,
-    hasWorkingTreeFile: true,
-    inGitDiff: false,
-    inLastCommit: false,
-    inAllFiles: true,
-    gitDiff: null,
-    lastCommit: null,
-    allFiles: null,
+    hasWorkingCopyFile: true,
+    inWorkingCopy: false,
+    inParentChange: false,
+    inStack: true,
+    workingCopy: null,
+    parentChange: null,
+    stack: null,
     ...flags,
   };
 }
 
 function makeState(draft?: Partial<ReviewState["draft"]>): ReviewState {
   return {
-    activeScope: "git-diff",
+    activeScope: "working-copy",
     activeFileId: "src/app.ts",
     searchQuery: "",
     focus: "diff",
@@ -40,9 +39,9 @@ function makeState(draft?: Partial<ReviewState["draft"]>): ReviewState {
 }
 
 const lineComment: DiffReviewComment = {
-  id: "line:git-diff:src/app.ts:added:2",
+  id: "line:working-copy:src/app.ts:added:2",
   fileId: "src/app.ts",
-  scope: "git-diff",
+  scope: "working-copy",
   side: "added",
   intent: "fix",
   startLine: 2,
@@ -101,7 +100,7 @@ describe("side-by-side diff helpers", () => {
 });
 
 describe("getEditorLineForTarget", () => {
-  it("maps deleted lines to the nearest surviving working-tree line", () => {
+  it("maps deleted lines to the nearest surviving working-copy line", () => {
     const diff = buildStructuredDiff(
       ["alpha", "removed", "kept"].join("\n") + "\n",
       ["alpha", "kept"].join("\n") + "\n",
@@ -153,20 +152,20 @@ describe("pane layout", () => {
 describe("related navigator helpers", () => {
   it("marks incoming, outgoing, and bidirectional related files", () => {
     const active = makeFile("src/active.ts", {
-      allFilesOutgoingReferences: ["src/out.ts", "src/both.ts"],
-      allFilesIncomingReferences: ["src/in.ts", "src/both.ts"],
+      stackOutgoingReferences: ["src/out.ts", "src/both.ts"],
+      stackIncomingReferences: ["src/in.ts", "src/both.ts"],
     });
 
-    expect(getRelatedFileMarker(makeFile("src/out.ts"), active, "all-files")).toBe("→");
-    expect(getRelatedFileMarker(makeFile("src/in.ts"), active, "all-files")).toBe("←");
-    expect(getRelatedFileMarker(makeFile("src/both.ts"), active, "all-files")).toBe("↔");
-    expect(getRelatedFileMarker(makeFile("src/other.ts"), active, "all-files")).toBeNull();
+    expect(getRelatedFileMarker(makeFile("src/out.ts"), active, "stack")).toBe("→");
+    expect(getRelatedFileMarker(makeFile("src/in.ts"), active, "stack")).toBe("←");
+    expect(getRelatedFileMarker(makeFile("src/both.ts"), active, "stack")).toBe("↔");
+    expect(getRelatedFileMarker(makeFile("src/other.ts"), active, "stack")).toBeNull();
   });
 
   it("combines incoming and outgoing related file paths", () => {
     const active = makeFile("src/active.ts", {
-      allFilesOutgoingReferences: ["src/out.ts", "src/both.ts"],
-      allFilesIncomingReferences: ["src/in.ts", "src/both.ts"],
+      stackOutgoingReferences: ["src/out.ts", "src/both.ts"],
+      stackIncomingReferences: ["src/in.ts", "src/both.ts"],
     });
 
     expect([...getRelatedFilePaths(active)].sort()).toEqual(["src/both.ts", "src/in.ts", "src/out.ts"]);

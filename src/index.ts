@@ -1,8 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getReviewWindowData, getSubmoduleReviewWindowData, loadReviewFileContents } from "./repository.js";
+import { getReviewWindowData, loadReviewFileContents } from "./jj.js";
 import { composeReviewPrompt } from "./prompt.js";
 import { loadCommentShortcuts } from "./shortcuts.js";
-import { GIT_SCOPE_LABELS, hasExactSubmoduleRange } from "./types.js";
 import { runReviewApp } from "./ui/review-app.js";
 
 export default function slopReviewExtension(pi: ExtensionAPI) {
@@ -22,10 +21,10 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
 
     activeReview = true;
     try {
-      const { repoRoot, files, scopeLabels } = await getReviewWindowData(pi, ctx.cwd);
+      const { repoRoot, files } = await getReviewWindowData(pi, ctx.cwd);
       const shortcutConfig = loadCommentShortcuts();
       if (files.length === 0) {
-        ctx.ui.notify("No reviewable files found for the current repository.", "info");
+        ctx.ui.notify("No reviewable files found in this Jujutsu workspace.", "info");
         return;
       }
 
@@ -35,16 +34,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
         files,
         repoRoot,
         loadFileContents: (activeRepoRoot, file, scope) => loadReviewFileContents(pi, activeRepoRoot, file, scope),
-        loadSubmoduleReviewData: async (submodule) => {
-          if (hasExactSubmoduleRange(submodule)) {
-            const data = await getSubmoduleReviewWindowData(pi, submodule.repoRoot, submodule.oldSha, submodule.newSha);
-            return { ...data, scopeLabels: GIT_SCOPE_LABELS };
-          }
-
-          return getReviewWindowData(pi, submodule.repoRoot);
-        },
         commentShortcuts: shortcutConfig.shortcuts,
-        scopeLabels,
       });
 
       if (result.type === "cancel") {
@@ -52,8 +42,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
         return;
       }
 
-      const prompt = composeReviewPrompt(submittedFiles, result);
-      ctx.ui.setEditorText(prompt);
+      ctx.ui.setEditorText(composeReviewPrompt(submittedFiles, result));
       ctx.ui.notify("Inserted review feedback into the editor.", "info");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -64,7 +53,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
   }
 
   const reviewCommand = {
-    description: "Review and annotate code changes",
+    description: "Review and annotate Jujutsu changes",
     handler: async (_args: string, ctx: ExtensionContext) => {
       await openReview(ctx);
     },
@@ -81,8 +70,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
   });
 
   // The global shortcut is registered once at load and cannot be re-bound for the
-  // rest of the session, so surface any config problems up front rather than
-  // waiting for the first review to open.
+  // rest of the session, so surface config problems before the first review.
   pi.on("session_start", async (event, ctx) => {
     if (event.reason === "startup" || event.reason === "reload") {
       notifyShortcutWarnings(ctx, initialShortcutConfig.warnings);

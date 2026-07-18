@@ -6,14 +6,13 @@ function makeFile(path: string): ReviewFile {
   return {
     id: path,
     path,
-    worktreeStatus: null,
-    hasWorkingTreeFile: true,
-    inGitDiff: true,
-    inLastCommit: true,
-    inAllFiles: false,
-    gitDiff: null,
-    lastCommit: null,
-    allFiles: null,
+    hasWorkingCopyFile: true,
+    inWorkingCopy: true,
+    inParentChange: true,
+    inStack: false,
+    workingCopy: null,
+    parentChange: null,
+    stack: null,
   };
 }
 

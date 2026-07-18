@@ -1,276 +1,165 @@
 # pi-slopchop
 
-`/slopchop` and `/diff` open a terminal-native review and annotation surface for Pi.
+`/slopchop` and `/diff` open a terminal-native review and annotation surface for Pi in a Jujutsu workspace.
 
-It is inspired by Mario Zechner's [pi-diff-review](https://github.com/badlogic/pi-diff-review).
+It lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
 
-It lets you stop after an agent turn, walk the diff inside Pi, add fast line/file/whole-change annotations, and send that feedback back to the agent as a clean prompt in the editor.
+## Review scopes
 
-The goal is simple: keep terminal-based review within Pi, keep annotations precise, and make it easy to separate **things that should change** from **things you want explained or discussed**.
-
-## Summary
-
-Use `/slopchop` or `/diff` when you want to review and annotate work before sending the agent another turn.
-
-It supports Git repositories and Jujutsu (`jj`) workspaces with three review scopes:
-
-| Scope | Git | Jujutsu |
+| Key | Scope | Revisions |
 | --- | --- | --- |
-| `1` | `git diff` | `working copy` (`@-` to `@`) |
-| `2` | `last commit` | `parent change` (`@--` to `@-`) |
-| `3` | `all files` | `stack vs trunk` (fork point with `trunk()` to `@`) |
+| `1` | working copy | `@-` to `@` |
+| `2` | parent change | `@--` to `@-` |
+| `3` | stack vs trunk | `fork_point(trunk() \| @)` to `@` |
 
-Inside the review UI you can:
+The UI opens the first available scope in this order:
 
-- move through files and hunks quickly
-- review changes in unified or side-by-side diff view
-- annotate **added** and **deleted** lines, including multiline ranges on one diff side
-- leave **file-level** annotations
-- leave a **whole-change** note
-- mark feedback as either:
-  - `FIX` — the agent should change something
-  - `DISCUSS` — the agent should explain, justify, or propose, without editing code just to satisfy the comment
-- drill into changed git submodules and review the exact nested commit range
-- insert the resulting review prompt into Pi’s editor
+1. working copy
+2. stack vs trunk
+3. parent change
+4. current file contents when no scope contains a change
 
-The review UI does **not** auto-send the prompt. It stages the next message for you.
+Stack files are ordered for review priority: files referenced by more changed files first, then modified/renamed before added/copied before deleted, then source files before tests/docs/changesets, then path order.
 
-## Quickstart
-
-### Install
+## Install
 
 ```bash
 pi install npm:pi-slopchop
 ```
 
-Then restart Pi or run `/reload`.
-
-### Run it
-
-Inside a Git repository or JJ workspace in Pi:
+Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
 
 ```text
 /slopchop
 ```
 
-You can also use the shorter command:
+The shorter `/diff` command and the default `alt+s` shortcut open the same UI.
 
-```text
-/diff
-```
+The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
 
-Or use the global shortcut, which defaults to:
+## Basic flow
 
-```text
-alt+s
-```
+1. Run `/slopchop`, `/diff`, or press `alt+s`.
+2. Pick a review scope with `1`, `2`, or `3`.
+3. Move to the file and line you want to review.
+4. Add feedback:
+   - `f` for a line comment with `FIX` preselected
+   - `d` or `c` for a line comment with `DISCUSS` preselected
+   - `l` for a file comment
+   - `a` for a whole-review note
+5. Press `s` to insert the generated prompt into Pi's editor.
+6. Edit it if needed, then send it normally.
 
-Configure the shortcut with `globalShortcut` in `~/.pi/agent/extensions/slopchop.json`, then restart Pi or run `/reload`.
+For fast repeated feedback, select a changed line, press `t`, then press a template shortcut from the comments panel. Press `e` afterwards to refine the generated comment.
 
-### Basic flow
+## Feedback model
 
-1. Run `/slopchop` or `/diff`
-2. Pick a scope. In Git repositories:
-   - `git diff` — review your current uncommitted working tree changes against `HEAD`
-   - `last commit` — review the most recent commit against its parent
-   - `all files` — review files changed on the current branch compared with the default branch; if there are no changed scopes, falls back to current file contents
+### Line comments
 
-   In JJ workspaces:
-   - `working copy` — review the current working-copy change, from its parent to `@`
-   - `parent change` — review the change immediately below the working copy
-   - `stack vs trunk` — review the current stack from `fork_point(trunk() | @)` through `@`
-
-   By default, the review UI opens the first scope that makes sense for the repo in this order:
-   - `git diff` / `working copy` if the current working copy has changes
-   - otherwise `all files` / `stack vs trunk` if the current branch or stack differs from its base
-   - otherwise `last commit` / `parent change` if that change is reviewable
-   - otherwise the current-file fallback
-
-   In the branch-level `all files` scope, files are ordered for review priority: changed files referenced by more other changed files come first, then modified/renamed before added before deleted, then source files before tests/docs/changesets, then path order. The navigator can filter to files related to the active file with `r`. In related mode, `→` means the active file references that file, `←` means that file references the active file, and `↔` means both. Press `r` again to return to all files.
-
-   Changed Git submodules appear as normal review rows with a `↗` marker. Press `Enter` or `→` to review the exact nested commit range, and press `b` to return to the parent review. File-level comments on the parent submodule row are included in the final prompt.
-3. Move to the file and line you care about; press `v` when you want side-by-side diff view
-4. Add annotations:
-   - `f` for a line annotation with `FIX` preselected
-   - `d` or `c` for a line annotation with `DISCUSS` preselected
-   - `l` for a file annotation
-   - `a` for a whole-change note
-5. Press `s` to insert the review prompt into the editor
-6. Read it, tweak it if you want, then send it normally
-
-### Fastest path
-
-If you want speed, use template shortcuts on a selected diff line:
-
-- press `t`
-- press a shortcut key from the right panel
-
-That creates a templated annotation instantly. If you want to refine it afterwards, press `e` on that same line.
-
-## Deep dive
-
-### Annotation model
-
-The review UI treats feedback as one of three scopes:
-
-#### Line comments
-
-Use these for precise feedback tied to a specific added or deleted line. Hold `Shift+↑↓` in the diff to extend the selection into a multiline range on the same diff side.
+Line comments attach to an added or deleted line. Hold `Shift+↑` or `Shift+↓` to extend the selection across a range on the same diff side.
 
 Examples:
 
 - `Why was this deleted?`
 - `What is this code doing?`
-- `Consider a clearer name here.`
+- `Use a clearer name here.`
 
-#### File comments
+### File comments
 
-Use these when the feedback applies to the whole file change rather than one line.
+Use file comments when feedback applies to the whole file change.
 
 Examples:
 
 - `Explain this file-level refactor.`
 - `This file now does too much.`
 
-#### Whole-change note
+### Whole-review note
 
-Use this when the feedback is about the change as a whole.
-
-Examples:
-
-- `Explain this entire diff to me.`
-- `What is the overall intention behind this change?`
-
-### FIX vs DISCUSS
-
-This distinction is central to how `/slopchop` works.
-
-#### FIX
-
-Use `FIX` when you want the next agent turn to change something.
+Use a whole-review note for feedback about the entire reviewed change or stack.
 
 Examples:
 
-- rename this
-- simplify this
-- add tests for this
-- restore this deleted line
+- `Explain the overall intention of this change.`
+- `Check whether this stack can be simplified.`
 
-#### DISCUSS
+### FIX and DISCUSS
 
-Use `DISCUSS` when you want explanation, rationale, tradeoffs, or a proposal.
+Use `FIX` when the next agent turn should change something. Use `DISCUSS` for explanation, rationale, tradeoffs, or proposals.
 
-Examples:
+The generated prompt distinguishes FIX-only, DISCUSS-only, and mixed reviews so discussion comments do not become accidental edits.
 
-- why was this deleted?
-- what is this code doing?
-- explain this change to me
-- is this approach intentional?
+## Navigation
 
-When the review UI generates the prompt, it uses different wording depending on whether your review is:
-
-- `DISCUSS` only
-- `FIX` only
-- mixed `FIX` + `DISCUSS`
-
-That keeps pure discussion prompts strict, and avoids unnecessary instructions when you only want changes.
-
-### Navigation and commenting
-
-#### Global
+### Global
 
 - `1 / 2 / 3` — switch scope
-- mouse wheel — scroll the pane under the cursor
-- `Tab` / `Shift+Tab` — cycle focus forward / backward
-- `/` — search files in the navigator
-- `?` — toggle help in the right sidebar
+- `Tab / Shift+Tab` — cycle focus
+- `/` — search files
+- `?` — toggle help
 - `w` — toggle wrapping
-- `v` — toggle unified / side-by-side diff view
-- `u` — toggle unchanged context in diff scopes
-- `h` — hide/show the comments pane
-- `s` — insert the generated prompt into the editor
-- `Esc` — request review exit; confirms before discarding draft feedback
-- `Ctrl+C` — request review exit with the same confirmation flow
+- `v` — toggle unified / side-by-side diff
+- `u` — toggle unchanged context in working-copy and parent-change scopes
+- `h` — hide/show comments
+- `s` — insert the generated prompt into Pi's editor
+- `Esc` or `Ctrl+C` — exit, with confirmation when draft feedback exists
+- mouse wheel — scroll the pane under the cursor
 
-#### Navigator
+### Navigator
 
 - `↑↓` or `j/k` — move between files
-- `Ctrl+d` / `Ctrl+u` — move down / up by half a pane
-- `gg / G` — jump to the top / bottom
-- `r` — toggle related-files filter in `all files` scope
-- file rows show change counts as `+added -deleted`
-- `Enter` — move focus to diff, or open the selected changed submodule
-- `→` — open the selected changed submodule when available
+- `Ctrl+d / Ctrl+u` — move by half a pane
+- `gg / G` — jump to top / bottom
+- `r` — toggle related-files filtering in the stack scope
+- `Enter` — focus the diff
 
-#### Diff
+In related mode, `→` means the active file references that file, `←` means that file references the active file, and `↔` means both.
 
-- `↑↓` or `j/k` — move between selectable added/deleted lines
-- `Shift+↑↓` — extend the selection into a multiline range on the current side
-- `← / →` — choose the old/deleted or new/added side on replacement rows in side-by-side view
-- `Ctrl+d` / `Ctrl+u` — move down / up by half a pane
-- `gg / G` — jump to the top / bottom
+### Diff
+
+- `↑↓` or `j/k` — move between selectable lines
+- `Shift+↑↓` — extend the line range on the current side
+- `← / →` — choose the deleted or added side of a replacement in side-by-side view
+- `Ctrl+d / Ctrl+u` — move by half a pane
+- `gg / G` — jump to top / bottom
 - `n / p` — next / previous hunk
-- `Enter` / `→` — open the selected changed submodule when available
-- `b` — return to the parent review when inside a submodule
-- `o` — open the selected source location in `$EDITOR`, then return to the review UI when the editor exits
-- `f` — line comment, default `FIX`
-- `d` or `c` — line comment, default `DISCUSS`
-- `e` — edit the existing line comment on the selected line
-- `x` — delete the existing line comment on the selected line
-- `l` — file comment
-- `a` — whole-change note
-- `t` — open template shortcut mode for the selected line
+- `o` — open the selected location in `$EDITOR`
+- `f` — add a FIX line comment
+- `d` or `c` — add a DISCUSS line comment
+- `e` — edit the selected line comment
+- `x` — delete the selected line comment
+- `l` — add a file comment
+- `a` — add a whole-review note
+- `t` — open template shortcut mode
 
-Opening a source location in `$EDITOR` returns you to the review UI when the editor exits and keeps your draft feedback available for submission.
+Side-by-side view keeps deleted lines on the left and added lines on the right. Line comments attach to the selected side and line number.
 
-Side-by-side diff view keeps review in one Diff panel. The left column shows deleted/old lines, the right column shows added/new lines, and replacement rows align old and new text on the same visual row. The active side is shown with the selected cell highlight, the active column header, and the selected-side status text. Line comments attach to the selected side and line number.
+Comment markers in the diff gutter:
 
-Line comment markers in the diff gutter:
+- `●` — FIX
+- `◆` — DISCUSS
 
-- `●` = `FIX`
-- `◆` = `DISCUSS`
+### Comments
 
-#### Comments panel
+- `↑↓` or `j/k` — move through comments
+- `Ctrl+d / Ctrl+u` — move by half a pane
+- `gg / G` — jump to top / bottom
+- `e` or `Enter` — edit
+- `d` — delete
 
-- `↑↓` or `j/k` — move through saved comments
-- `Ctrl+d` / `Ctrl+u` — move down / up by half a pane
-- `gg / G` — jump to the top / bottom
-- `e` or `Enter` — edit selected comment
-- `d` — delete selected comment
+### Comment editor
 
-#### Editor
-
-- `Tab` — toggle `FIX` / `DISCUSS`
+- `Tab` — toggle FIX / DISCUSS
 - `Enter` — save
 - `Shift+Enter` — newline
-- `Esc` — cancel editor
+- `Esc` — cancel
 
-### Template shortcut mode
+## Shortcut configuration
 
-Template shortcut mode is for very fast line comments.
+Optional user configuration lives at:
 
-When you press `t` on a selected diff line:
-
-- the right sidebar switches to a shortcut panel
-- shortcuts are grouped under `DISCUSS` and `FIX`
-- pressing one shortcut key applies that comment immediately
-
-This is designed for repetitive review patterns like:
-
-- explain this
-- why was this added?
-- why was this deleted?
-- what problem is this solving?
-- simplify this
-- add tests
-
-If you want to refine the templated text after applying it, press `e` on that line.
-
-### Shortcut configuration
-
-Optional user-level config file:
-
-- `~/.pi/agent/extensions/slopchop.json`
+```text
+~/.pi/agent/extensions/slopchop.json
+```
 
 Example:
 
@@ -294,42 +183,11 @@ Example:
 }
 ```
 
-#### Fields
-
 - `version` — schema version, currently `1`
-- `globalShortcut` — global Pi shortcut that opens the review UI, defaults to `alt+s`. Use Pi key identifiers such as `alt+s`, `ctrl+alt+r`, `shift+f5`, or `f5`. Single printable characters require a modifier, so normal typing stays in the editor. Bare special keys such as `f5`, `home`, and `pageUp` are supported. Escape is supported as `escape` or `esc` without modifiers. The shortcut is registered when the extension loads; restart Pi or run `/reload` after changing it. If the configured shortcut is invalid, slopchop uses `alt+s` and shows a config warning.
-- `builtins.disable` — built-in shortcut ids to turn off
-- `shortcuts` — your custom shortcuts
+- `globalShortcut` — Pi shortcut that opens the review UI, default `alt+s`
+- `builtins.disable` — built-in template shortcut IDs to disable
+- `shortcuts` — custom template shortcuts
 
-Each shortcut has:
+Each custom shortcut requires a stable `id`, one-character `key`, short `label`, `fix` or `discuss` intent, `added`, `deleted`, or `both` side, and comment `text`.
 
-- `id` — stable identifier
-- `key` — one-character trigger after opening template shortcut mode with `t`
-- `label` — short label shown in the UI
-- `intent` — `fix` or `discuss`
-- `side` — `added`, `deleted`, or `both`
-- `text` — the comment text to apply
-
-### Prompt generation
-
-When you submit, `/slopchop` builds a prompt that matches the kind of review you created.
-
-It groups feedback naturally into sections like:
-
-- review-wide note
-- file comments
-- line comments
-
-and uses stricter instructions when `DISCUSS` items are present, so the model is less likely to turn explanatory comments into accidental edits.
-
-### What it is good at
-
-`/slopchop` is especially good when you want to:
-
-- pause after an agent turn and inspect the change carefully
-- ask for explanation without losing the exact line you are looking at
-- separate actionable change requests from discussion
-- review deleted lines, not just added ones
-- stay inside Pi instead of switching to a browser or external review tool
-
-
+Restart Pi or run `/reload` after changing the global shortcut.

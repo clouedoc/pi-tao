@@ -3,9 +3,8 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
-import { parseJjDiffEntries } from "../jj.js";
-import { getReviewWindowData, loadReviewFileContents } from "../repository.js";
+import { describe, expect, it, vi } from "vitest";
+import { getChangedFileReferenceGraph, getReviewWindowData, isReviewableFilePath, loadReviewFileContents, parseJjDiffEntries } from "../jj.js";
 
 const execFileAsync = promisify(execFile);
 const hasJj = spawnSync("jj", ["--version"], { stdio: "ignore" }).status === 0;
@@ -68,20 +67,46 @@ describe("JJ diff metadata", () => {
   it("rejects malformed JSONL instead of returning a partial diff", () => {
     expect(() => parseJjDiffEntries('{"status":"modified"\n')).toThrow("Could not parse diff metadata from jj");
   });
+
+  it("tracks references between changed files", () => {
+    const changes = [
+      { status: "added" as const, oldPath: null, newPath: "src/root.ts" },
+      { status: "modified" as const, oldPath: "src/a.ts", newPath: "src/a.ts" },
+      { status: "modified" as const, oldPath: "src/nested/b.ts", newPath: "src/nested/b.ts" },
+    ];
+    const contents = new Map([
+      ["src/a.ts", "import { root } from './root';\n"],
+      ["src/nested/b.ts", "export { root } from '../root';\n"],
+    ]);
+
+    const graph = getChangedFileReferenceGraph(changes, contents);
+    expect(graph.counts.get("src/root.ts")).toBe(2);
+    expect(graph.outgoing.get("src/a.ts")).toEqual(["src/root.ts"]);
+    expect(graph.incoming.get("src/root.ts")).toEqual(["src/a.ts", "src/nested/b.ts"]);
+  });
+
+  it("filters obvious binary and minified assets", () => {
+    expect(isReviewableFilePath("src/app.ts")).toBe(true);
+    expect(isReviewableFilePath("assets/logo.png")).toBe(false);
+    expect(isReviewableFilePath("dist/app.min.js")).toBe(false);
+  });
 });
 
 describe("JJ workspace integration", () => {
-  jjIt("reviews a nested JJ workspace instead of the enclosing Git worktree", async () => {
+  it("requires a Jujutsu workspace", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "not a Jujutsu workspace" }));
+
+    await expect(getReviewWindowData({ exec } as never, "/tmp/outside")).rejects.toThrow("Not inside a Jujutsu workspace");
+    expect(exec).toHaveBeenCalledWith("jj", ["--no-pager", "--color=never", "root"], { cwd: "/tmp/outside" });
+  });
+
+  jjIt("reviews the active nested JJ workspace", async () => {
     const repoRoot = await mkdtemp(join(tmpdir(), "pi-slopchop-jj-test-"));
     const workspaceRoot = join(repoRoot, ".wp", "my-workspace");
     try {
-      await run("git", ["init", "-q"], repoRoot);
-      await run("git", ["config", "user.email", "test@example.com"], repoRoot);
-      await run("git", ["config", "user.name", "Test User"], repoRoot);
-      await writeFile(join(repoRoot, "README.md"), "initial\n", "utf8");
-      await run("git", ["add", "README.md"], repoRoot);
-      await run("git", ["commit", "-qm", "initial"], repoRoot);
       await run("jj", ["git", "init", "--colocate", "."], repoRoot);
+      await writeFile(join(repoRoot, "README.md"), "initial\n", "utf8");
+      await run("jj", ["new"], repoRoot);
       await mkdir(join(repoRoot, ".wp"), { recursive: true });
       await run("jj", ["workspace", "add", ".wp/my-workspace"], repoRoot);
 
@@ -92,29 +117,22 @@ describe("JJ workspace integration", () => {
       const pi = createExecPi();
       const data = await getReviewWindowData(pi as never, workspaceRoot);
 
-      expect(data.backend).toBe("jj");
       expect(data.repoRoot).toBe(workspaceRoot);
-      expect(data.scopeLabels).toEqual({
-        "git-diff": "working copy",
-        "last-commit": "parent change",
-        "all-files": "stack vs trunk",
-      });
-      expect(data.files.filter((file) => file.inGitDiff).map((file) => file.path).sort()).toEqual(["README.md", "new.ts"]);
+      expect(data.files.filter((file) => file.inWorkingCopy).map((file) => file.path).sort()).toEqual(["README.md", "new.ts"]);
       expect(data.files.some((file) => file.path === "outer-only.txt")).toBe(false);
 
       const readme = data.files.find((file) => file.path === "README.md")!;
-      expect(readme.reviewBackend).toBe("jj");
-      expect(readme.inLastCommit).toBe(true);
-      expect(readme.inAllFiles).toBe(true);
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "git-diff")).resolves.toEqual({
+      expect(readme.inParentChange).toBe(true);
+      expect(readme.inStack).toBe(true);
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "working-copy")).resolves.toEqual({
         originalContent: "initial\n",
         modifiedContent: "initial\nworkspace change\n",
       });
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "last-commit")).resolves.toEqual({
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "parent-change")).resolves.toEqual({
         originalContent: "",
         modifiedContent: "initial\n",
       });
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "all-files")).resolves.toEqual({
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, readme, "stack")).resolves.toEqual({
         // With no configured remote, JJ's default trunk() is the root commit.
         originalContent: "",
         modifiedContent: "initial\nworkspace change\n",
@@ -124,8 +142,8 @@ describe("JJ workspace integration", () => {
       await rename(join(workspaceRoot, "README.md"), join(workspaceRoot, "RENAMED.md"));
       const withRename = await getReviewWindowData(pi as never, workspaceRoot);
       const renamed = withRename.files.find((file) => file.path === "RENAMED.md")!;
-      expect(renamed.gitDiff?.status).toBe("renamed");
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, renamed, "git-diff")).resolves.toEqual({
+      expect(renamed.workingCopy?.status).toBe("renamed");
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, renamed, "working-copy")).resolves.toEqual({
         originalContent: "initial\n",
         modifiedContent: "initial\n",
       });
@@ -134,27 +152,23 @@ describe("JJ workspace integration", () => {
 
       await writeFile(join(workspaceRoot, "delete-me.txt"), "delete me\n", "utf8");
       await writeFile(join(workspaceRoot, "large-added.txt"), "x".repeat(1_000_001), "utf8");
-      await writeFile(join(workspaceRoot, "large-deleted.txt"), "x".repeat(1_000_001), "utf8");
-      await writeFile(join(workspaceRoot, "large-replaced.txt"), "x".repeat(1_000_001), "utf8");
       await writeFile(join(workspaceRoot, "high-churn.txt"), "a\n".repeat(11_000), "utf8");
       await run("jj", ["new"], workspaceRoot);
       await rm(join(workspaceRoot, "delete-me.txt"));
-      await rm(join(workspaceRoot, "large-deleted.txt"));
       await writeFile(join(workspaceRoot, "large-current.txt"), "y".repeat(1_000_001), "utf8");
-      await writeFile(join(workspaceRoot, "large-replaced.txt"), "small\n", "utf8");
       await writeFile(join(workspaceRoot, "high-churn.txt"), "b\n".repeat(11_000), "utf8");
 
       const withLargeFiles = await getReviewWindowData(pi as never, workspaceRoot);
       const deleted = withLargeFiles.files.find((file) => file.path === "delete-me.txt")!;
-      expect(deleted.gitDiff?.status).toBe("deleted");
-      await expect(loadReviewFileContents(pi as never, workspaceRoot, deleted, "git-diff")).resolves.toEqual({
+      expect(deleted.workingCopy?.status).toBe("deleted");
+      await expect(loadReviewFileContents(pi as never, workspaceRoot, deleted, "working-copy")).resolves.toEqual({
         originalContent: "delete me\n",
         modifiedContent: "",
       });
-      for (const path of ["large-current.txt", "large-deleted.txt", "large-replaced.txt", "high-churn.txt"]) {
-        expect(withLargeFiles.files.find((file) => file.path === path)?.gitDiff?.isTooLarge, path).toBe(true);
+      for (const path of ["large-current.txt", "high-churn.txt"]) {
+        expect(withLargeFiles.files.find((file) => file.path === path)?.workingCopy?.isTooLarge, path).toBe(true);
       }
-      expect(withLargeFiles.files.find((file) => file.path === "large-added.txt")?.lastCommit?.isTooLarge).toBe(true);
+      expect(withLargeFiles.files.find((file) => file.path === "large-added.txt")?.parentChange?.isTooLarge).toBe(true);
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }

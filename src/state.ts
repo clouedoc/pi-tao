@@ -7,20 +7,20 @@ function hasFilesForScope(files: ReviewFile[], scope: ReviewScope): boolean {
 }
 
 export function getDefaultScope(files: ReviewFile[]): ReviewScope {
-  if (hasFilesForScope(files, "git-diff")) return "git-diff";
-  if (hasFilesForScope(files, "all-files")) return "all-files";
-  if (hasFilesForScope(files, "last-commit")) return "last-commit";
-  return "all-files";
+  if (hasFilesForScope(files, "working-copy")) return "working-copy";
+  if (hasFilesForScope(files, "stack")) return "stack";
+  if (hasFilesForScope(files, "parent-change")) return "parent-change";
+  return "stack";
 }
 
-function getAllFilesStatusRank(status: ChangeStatus | null | undefined): number {
+function getStackStatusRank(status: ChangeStatus | null | undefined): number {
   if (status === "modified" || status === "renamed") return 0;
   if (status === "added" || status === "copied") return 1;
   if (status === "deleted") return 2;
   return 3;
 }
 
-function getAllFilesSupportRank(path: string): number {
+function getStackSupportRank(path: string): number {
   const lowerPath = path.toLowerCase();
   if (/(^|\/)(\.changeset|docs?|tests?|__tests__|__mocks__)(\/|$)/.test(lowerPath)) return 1;
   if (/(^|\/)[^/]+\.(test|spec)\.[cm]?[jt]sx?$/.test(lowerPath)) return 1;
@@ -29,18 +29,18 @@ function getAllFilesSupportRank(path: string): number {
 }
 
 /**
- * Order branch-level "all files" changes for review, not for path browsing:
+ * Order stack changes for review, not for path browsing:
  * most referenced changed files first, then modified/renamed before added before
  * deleted, then source files before tests/docs/changesets, then path order.
  */
-export function compareAllFilesForReview(a: ReviewFile, b: ReviewFile): number {
-  const referenceDelta = (b.allFilesReferenceCount ?? 0) - (a.allFilesReferenceCount ?? 0);
+export function compareStackForReview(a: ReviewFile, b: ReviewFile): number {
+  const referenceDelta = (b.stackReferenceCount ?? 0) - (a.stackReferenceCount ?? 0);
   if (referenceDelta !== 0) return referenceDelta;
 
-  const statusDelta = getAllFilesStatusRank(a.allFiles?.status) - getAllFilesStatusRank(b.allFiles?.status);
+  const statusDelta = getStackStatusRank(a.stack?.status) - getStackStatusRank(b.stack?.status);
   if (statusDelta !== 0) return statusDelta;
 
-  const supportDelta = getAllFilesSupportRank(a.path) - getAllFilesSupportRank(b.path);
+  const supportDelta = getStackSupportRank(a.path) - getStackSupportRank(b.path);
   if (supportDelta !== 0) return supportDelta;
 
   return a.path.localeCompare(b.path);
@@ -48,14 +48,14 @@ export function compareAllFilesForReview(a: ReviewFile, b: ReviewFile): number {
 
 export function getScopedFiles(files: ReviewFile[], scope: ReviewScope): ReviewFile[] {
   switch (scope) {
-    case "git-diff":
-      return files.filter((file) => file.inGitDiff);
-    case "last-commit":
-      return files.filter((file) => file.inLastCommit);
-    case "all-files": {
-      const scoped = files.filter((file) => file.inAllFiles);
-      if (!scoped.some((file) => file.allFiles != null)) return scoped;
-      return scoped.sort(compareAllFilesForReview);
+    case "working-copy":
+      return files.filter((file) => file.inWorkingCopy);
+    case "parent-change":
+      return files.filter((file) => file.inParentChange);
+    case "stack": {
+      const scoped = files.filter((file) => file.inStack);
+      if (!scoped.some((file) => file.stack != null)) return scoped;
+      return scoped.sort(compareStackForReview);
     }
   }
 }

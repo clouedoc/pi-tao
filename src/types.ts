@@ -1,26 +1,8 @@
-export type ReviewScope = "git-diff" | "last-commit" | "all-files";
-
-export type ReviewBackendKind = "git" | "jj";
-
-export type ReviewScopeLabels = Readonly<Record<ReviewScope, string>>;
-
-export const GIT_SCOPE_LABELS: ReviewScopeLabels = {
-  "git-diff": "git diff",
-  "last-commit": "last commit",
-  "all-files": "all files",
-};
-
-export const JJ_SCOPE_LABELS: ReviewScopeLabels = {
-  "git-diff": "working copy",
-  "last-commit": "parent change",
-  "all-files": "stack vs trunk",
-};
+export type ReviewScope = "working-copy" | "parent-change" | "stack";
 
 export interface ReviewWindowData {
-  backend: ReviewBackendKind;
   repoRoot: string;
   files: ReviewFile[];
-  scopeLabels: ReviewScopeLabels;
 }
 
 export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "copied";
@@ -30,56 +12,28 @@ export interface ReviewFileComparison {
   oldPath: string | null;
   newPath: string | null;
   displayPath: string;
-  hasOriginal: boolean;
-  hasModified: boolean;
   additions?: number;
   deletions?: number;
   /** True when the diff is represented by a compact review placeholder. */
   isTooLarge?: boolean;
-  /** True when the displayed stats are a lower bound gathered from a bounded scan. */
-  statsTruncated?: boolean;
-  /** Revision used for the original side when this comparison has an explicit range. */
-  originalRevision?: string | null;
-  /** Revision used for the modified side when this comparison has an explicit range. */
-  modifiedRevision?: string | null;
+  /** Exact revisions used for the original and modified sides. */
+  originalRevision?: string;
+  modifiedRevision?: string;
 }
-
-export interface ReviewSubmoduleInfo {
-  /** Absolute repo root for the nested git repository. */
-  repoRoot: string;
-  /** Parent-visible submodule path for this scope. */
-  path: string;
-  /** Commit recorded on the original side of the parent diff. */
-  oldSha: string | null;
-  /** Commit recorded on the modified side of the parent diff. */
-  newSha: string | null;
-  /** True when the nested repository can be opened locally. */
-  available: boolean;
-  /** Human-facing reason shown when the nested review cannot be opened. */
-  unavailableReason?: string;
-}
-
-export type ReviewSubmoduleByScope = Partial<Record<ReviewScope, ReviewSubmoduleInfo>>;
 
 export interface ReviewFile {
   id: string;
   path: string;
-  /** VCS backend that produced this file's comparison metadata. Defaults to Git for legacy callers. */
-  reviewBackend?: ReviewBackendKind;
-  /** Parent repo path prefix used when rendering nested review file paths. */
-  pathPrefix?: string;
-  worktreeStatus: ChangeStatus | null;
-  hasWorkingTreeFile: boolean;
-  inGitDiff: boolean;
-  inLastCommit: boolean;
-  inAllFiles: boolean;
-  gitDiff: ReviewFileComparison | null;
-  lastCommit: ReviewFileComparison | null;
-  allFiles: ReviewFileComparison | null;
-  allFilesReferenceCount?: number;
-  allFilesOutgoingReferences?: string[];
-  allFilesIncomingReferences?: string[];
-  submodule?: ReviewSubmoduleByScope;
+  hasWorkingCopyFile: boolean;
+  inWorkingCopy: boolean;
+  inParentChange: boolean;
+  inStack: boolean;
+  workingCopy: ReviewFileComparison | null;
+  parentChange: ReviewFileComparison | null;
+  stack: ReviewFileComparison | null;
+  stackReferenceCount?: number;
+  stackOutgoingReferences?: string[];
+  stackIncomingReferences?: string[];
 }
 
 export interface ReviewFileContents {
@@ -140,8 +94,12 @@ export interface ReviewCancelPayload {
 
 export type ReviewResult = ReviewSubmitPayload | ReviewCancelPayload;
 
-export function formatScopeLabel(scope: ReviewScope, labels: ReviewScopeLabels = GIT_SCOPE_LABELS): string {
-  return labels[scope];
+export function formatScopeLabel(scope: ReviewScope): string {
+  switch (scope) {
+    case "working-copy": return "working copy";
+    case "parent-change": return "parent change";
+    case "stack": return "stack vs trunk";
+  }
 }
 
 export function scopeFileKey(scope: ReviewScope, fileId: string): string {
@@ -155,36 +113,8 @@ export function formatIntentLabel(intent: CommentIntent): string {
   }
 }
 
-export function isSubmoduleReviewFile(file: ReviewFile | null | undefined, scope: ReviewScope): file is ReviewFile & { submodule: ReviewSubmoduleByScope } {
-  return file?.submodule?.[scope] != null;
-}
-
-export function getSubmoduleInfo(file: ReviewFile | null | undefined, scope: ReviewScope): ReviewSubmoduleInfo | null {
-  return file?.submodule?.[scope] ?? null;
-}
-
-export function hasExactSubmoduleRange(
-  submodule: ReviewSubmoduleInfo,
-): submodule is ReviewSubmoduleInfo & { oldSha: string; newSha: string } {
-  return submodule.oldSha != null && submodule.newSha != null && submodule.oldSha !== submodule.newSha;
-}
-
-export function joinReviewPath(prefix: string | undefined, path: string): string {
-  return prefix == null || prefix.length === 0 ? path : `${prefix}/${path}`;
-}
-
-function getPrefixedComparisonDisplayPath(prefix: string | undefined, comparison: ReviewFileComparison): string {
-  if ((comparison.status === "renamed" || comparison.status === "copied") && comparison.oldPath != null && comparison.newPath != null) {
-    return `${joinReviewPath(prefix, comparison.oldPath)} -> ${joinReviewPath(prefix, comparison.newPath)}`;
-  }
-
-  return joinReviewPath(prefix, comparison.displayPath);
-}
-
 export function getReviewFileDisplayPath(file: ReviewFile | null | undefined, scope: ReviewScope): string {
   if (file == null) return "(no file)";
-  const comparison = scope === "git-diff" ? file.gitDiff : scope === "last-commit" ? file.lastCommit : file.allFiles;
-  return comparison == null
-    ? joinReviewPath(file.pathPrefix, file.path)
-    : getPrefixedComparisonDisplayPath(file.pathPrefix, comparison);
+  const comparison = scope === "working-copy" ? file.workingCopy : scope === "parent-change" ? file.parentChange : file.stack;
+  return comparison?.displayPath ?? file.path;
 }

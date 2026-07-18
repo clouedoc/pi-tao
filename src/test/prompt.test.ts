@@ -6,47 +6,39 @@ const files: ReviewFile[] = [
   {
     id: "foo",
     path: "src/foo.ts",
-    worktreeStatus: "modified",
-    hasWorkingTreeFile: true,
-    inGitDiff: true,
-    inLastCommit: true,
-    inAllFiles: false,
-    gitDiff: {
+    hasWorkingCopyFile: true,
+    inWorkingCopy: true,
+    inParentChange: true,
+    inStack: false,
+    workingCopy: {
       status: "modified",
       oldPath: "src/foo.ts",
       newPath: "src/foo.ts",
       displayPath: "src/foo.ts",
-      hasOriginal: true,
-      hasModified: true,
     },
-    lastCommit: {
+    parentChange: {
       status: "renamed",
       oldPath: "src/old-foo.ts",
       newPath: "src/foo.ts",
       displayPath: "src/old-foo.ts -> src/foo.ts",
-      hasOriginal: true,
-      hasModified: true,
     },
-    allFiles: null,
+    stack: null,
   },
   {
     id: "bar",
     path: "src/bar.ts",
-    worktreeStatus: "modified",
-    hasWorkingTreeFile: true,
-    inGitDiff: true,
-    inLastCommit: false,
-    inAllFiles: false,
-    gitDiff: {
+    hasWorkingCopyFile: true,
+    inWorkingCopy: true,
+    inParentChange: false,
+    inStack: false,
+    workingCopy: {
       status: "modified",
       oldPath: "src/bar.ts",
       newPath: "src/bar.ts",
       displayPath: "src/bar.ts",
-      hasOriginal: true,
-      hasModified: true,
     },
-    lastCommit: null,
-    allFiles: null,
+    parentChange: null,
+    stack: null,
   },
 ];
 
@@ -60,7 +52,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "2",
           fileId: "foo",
-          scope: "last-commit",
+          scope: "parent-change",
           side: "file",
           intent: "fix",
           startLine: null,
@@ -70,7 +62,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "git-diff",
+          scope: "working-copy",
           side: "added",
           intent: "fix",
           startLine: 27,
@@ -80,7 +72,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "3",
           fileId: "foo",
-          scope: "last-commit",
+          scope: "parent-change",
           side: "deleted",
           intent: "fix",
           startLine: 11,
@@ -129,7 +121,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "foo",
-          scope: "all-files",
+          scope: "stack",
           side: "added",
           intent: "discuss",
           startLine: 3,
@@ -162,7 +154,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "git-diff",
+          scope: "working-copy",
           side: "added",
           intent: "fix",
           startLine: 27,
@@ -184,7 +176,7 @@ describe("composeReviewPrompt", () => {
         {
           id: "1",
           fileId: "bar",
-          scope: "git-diff",
+          scope: "working-copy",
           side: "added",
           intent: "fix",
           startLine: 27,
@@ -206,41 +198,4 @@ describe("composeReviewPrompt", () => {
     expect(prompt).not.toContain("DISCUSS items");
   });
 
-  it("keeps nested submodule path prefixes in generated locations", () => {
-    const prompt = composeReviewPrompt([
-      ...files,
-      {
-        ...files[0]!,
-        id: "nested",
-        path: "src/nested.ts",
-        pathPrefix: "packages/app",
-        allFiles: {
-          status: "modified",
-          oldPath: "src/nested.ts",
-          newPath: "src/nested.ts",
-          displayPath: "src/nested.ts",
-          hasOriginal: true,
-          hasModified: true,
-        },
-      },
-    ], {
-      type: "submit",
-      allComment: "",
-      allIntent: "fix",
-      comments: [
-        {
-          id: "nested-line",
-          fileId: "nested",
-          scope: "all-files",
-          side: "added",
-          intent: "fix",
-          startLine: 8,
-          endLine: 9,
-          body: "Tighten this block.",
-        },
-      ],
-    });
-
-    expect(prompt).toContain("1. packages/app/src/nested.ts:8-9");
-  });
 });

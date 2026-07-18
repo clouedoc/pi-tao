@@ -1,6 +1,6 @@
 # pi-slopchop
 
-`/slopchop` and `/diff` open a terminal-native review and annotation surface for Pi in a Jujutsu workspace.
+`/diff` opens a terminal-native review and annotation surface for Pi in a Jujutsu workspace.
 
 It lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
 
@@ -30,16 +30,14 @@ pi install npm:pi-slopchop
 Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
 
 ```text
-/slopchop
+/diff
 ```
-
-The shorter `/diff` command and the default `alt+s` shortcut open the same UI.
 
 The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
 
 ## Basic flow
 
-1. Run `/slopchop`, `/diff`, or press `alt+s`.
+1. Run `/diff`.
 2. Pick a review scope with `1`, `2`, or `3`.
 3. Move to the file and line you want to review.
 4. Add feedback:
@@ -153,7 +151,7 @@ Comment markers in the diff gutter:
 - `Shift+Enter` — newline
 - `Esc` — cancel
 
-## Shortcut configuration
+## Template shortcut configuration
 
 Optional user configuration lives at:
 
@@ -166,7 +164,6 @@ Example:
 ```json
 {
   "version": 1,
-  "globalShortcut": "ctrl+alt+r",
   "builtins": {
     "disable": ["restore-deleted"]
   },
@@ -184,10 +181,8 @@ Example:
 ```
 
 - `version` — schema version, currently `1`
-- `globalShortcut` — Pi shortcut that opens the review UI, default `alt+s`
 - `builtins.disable` — built-in template shortcut IDs to disable
 - `shortcuts` — custom template shortcuts
 
 Each custom shortcut requires a stable `id`, one-character `key`, short `label`, `fix` or `discuss` intent, `added`, `deleted`, or `both` side, and comment `text`.
 
-Restart Pi or run `/reload` after changing the global shortcut.

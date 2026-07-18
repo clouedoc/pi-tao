@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`pi-slopchop` is a Pi coding-agent extension that adds the `/slopchop` terminal review UI. It lets users review diffs, annotate lines/files/whole changes, and insert a follow-up prompt back into Pi.
+`pi-slopchop` is a Pi coding-agent extension that adds the `/diff` terminal review UI. It lets users review diffs, annotate lines/files/whole changes, and insert a follow-up prompt back into Pi.
 
 The package is loaded by Pi from `./src/index.ts`.
 

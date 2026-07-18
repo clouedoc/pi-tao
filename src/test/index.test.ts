@@ -32,32 +32,12 @@ describe("slop review extension", () => {
     vi.clearAllMocks();
     mocks.loadCommentShortcuts.mockReturnValue({
       shortcuts: [],
-      globalShortcut: "alt+s",
       warnings: ["bad shortcut config"],
       path: "/tmp/slopchop.json",
     });
   });
 
-  it("surfaces initial shortcut config warnings on startup and reload", async () => {
-    const handlers = new Map<string, (event: { reason: string }, ctx: { hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn> } }) => Promise<void>>();
-    const pi = {
-      registerCommand: vi.fn(),
-      registerShortcut: vi.fn(),
-      on: vi.fn((event: string, handler) => handlers.set(event, handler)),
-    };
-    const ctx = { hasUI: true, ui: { notify: vi.fn() } };
-
-    slopReviewExtension(pi as never);
-
-    await handlers.get("session_start")?.({ reason: "startup" }, ctx);
-    await handlers.get("session_start")?.({ reason: "reload" }, ctx);
-
-    expect(ctx.ui.notify).toHaveBeenCalledTimes(2);
-    expect(ctx.ui.notify).toHaveBeenNthCalledWith(1, "slopchop config: bad shortcut config", "warning");
-    expect(ctx.ui.notify).toHaveBeenNthCalledWith(2, "slopchop config: bad shortcut config", "warning");
-  });
-
-  it("opens the Jujutsu review and inserts the generated prompt", async () => {
+  it("registers only /diff and opens the Jujutsu review", async () => {
     const commands = new Map<string, { handler: (args: string, ctx: { cwd: string; hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn>; setEditorText: ReturnType<typeof vi.fn> } }) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
@@ -79,7 +59,11 @@ describe("slop review extension", () => {
     mocks.composeReviewPrompt.mockReturnValue("prompt body");
 
     slopReviewExtension(pi as never);
-    await commands.get("slopchop")?.handler("", ctx);
+
+    expect([...commands]).toEqual([["diff", expect.any(Object)]]);
+    expect(pi.registerShortcut).not.toHaveBeenCalled();
+
+    await commands.get("diff")?.handler("", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenCalledWith(pi, "/repo");
     expect(mocks.runReviewApp).toHaveBeenCalledWith(ctx, expect.objectContaining({
@@ -89,5 +73,6 @@ describe("slop review extension", () => {
     }));
     expect(mocks.composeReviewPrompt).toHaveBeenCalledWith(files, result);
     expect(ctx.ui.setEditorText).toHaveBeenCalledWith("prompt body");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("slopchop config: bad shortcut config", "warning");
   });
 });

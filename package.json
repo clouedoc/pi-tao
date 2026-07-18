@@ -1,17 +1,17 @@
 {
-  "name": "pi-slopchop",
+  "name": "pi-slopchop-jj",
   "version": "0.10.1",
   "type": "module",
-  "description": "Terminal-native code review and annotation workflow for the Pi coding agent.",
-  "author": "Rob Zolkos <rob@zolkos.com>",
+  "description": "Terminal-native Jujutsu diff review and annotation workflow for the Pi coding agent.",
+  "author": "Camille Louédoc <clouedoc@icloud.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/robzolkos/pi-slopchop.git"
+    "url": "git+https://github.com/clouedoc/pi-slopchop-jj.git"
   },
-  "homepage": "https://github.com/robzolkos/pi-slopchop#readme",
+  "homepage": "https://github.com/clouedoc/pi-slopchop-jj#readme",
   "bugs": {
-    "url": "https://github.com/robzolkos/pi-slopchop/issues"
+    "url": "https://github.com/clouedoc/pi-slopchop-jj/issues"
   },
   "files": [
     "src/diff.ts",
@@ -35,6 +35,8 @@
     "diff-review",
     "code-review",
     "annotation",
+    "jujutsu",
+    "jj",
     "terminal"
   ],
   "pi": {

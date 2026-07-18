@@ -1,4 +1,7 @@
-# pi-slopchop
+# pi-slopchop-jj
+
+> [!NOTE]
+> This is a Jujutsu-only fork of [pi-slopchop](https://github.com/robzolkos/pi-slopchop). It focuses on `jj` workflows and does not support Git repositories.
 
 `/diff` opens a terminal-native review and annotation surface for Pi in a Jujutsu workspace.
 
@@ -24,7 +27,7 @@ Stack files are ordered for review priority: files referenced by more changed fi
 ## Install
 
 ```bash
-pi install npm:pi-slopchop
+pi install npm:pi-slopchop-jj
 ```
 
 Restart Pi or run `/reload`, then open a Jujutsu workspace and run:

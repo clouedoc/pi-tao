@@ -2374,11 +2374,10 @@ class ReviewApp {
 
     const scopeTabs = SEARCHABLE_SCOPES.map((scope, index) => {
       const active = this.state.activeScope === scope;
-      const count = getScopedFiles(this.files, scope).length;
       const selection = scope === "change"
         ? ` ${this.selectedChange.isWorkingCopy ? "@" : this.selectedChange.changeId.slice(0, 8)}`
         : " trunk()→@";
-      const text = `${index + 1}:${formatScopeLabel(scope)}${selection}(${count})`;
+      const text = `${index + 1}:${formatScopeLabel(scope)}${selection}`;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
     }).join(" ");
 

@@ -122,7 +122,10 @@ describe("JJ workspace integration", () => {
       expect(data.files.filter((file) => file.inChange).map((file) => file.path).sort()).toEqual(["README.md", "new.ts"]);
       expect(data.files.some((file) => file.path === "outer-only.txt")).toBe(false);
       expect(data.selectedChange.isWorkingCopy).toBe(true);
+      expect(data.selectedChange.changeId.startsWith(data.selectedChange.changeIdPrefix)).toBe(true);
       expect(data.changes.some((change) => !change.isWorkingCopy)).toBe(true);
+      expect(data.stackRange?.start.description).toBe("initial");
+      expect(data.stackRange?.end.isWorkingCopy).toBe(true);
 
       const readme = data.files.find((file) => file.path === "README.md" && file.inChange)!;
       const stackReadme = data.files.find((file) => file.path === "README.md" && file.inStack)!;

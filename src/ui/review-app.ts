@@ -35,7 +35,7 @@ import { detectPiLanguage, highlightCodeLineWithPi } from "../pi-render.js";
 import { getShortcutConfigPath, getShortcutsForSide, type CommentShortcut } from "../shortcuts.js";
 import { filterFilesBySearch } from "../search.js";
 import { highlightJsonLine, highlightMarkdownLine } from "../theme-highlight.js";
-import type { CommentIntent, DiffReviewComment, ReviewChange, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewState, ReviewWindowData } from "../types.js";
+import type { CommentIntent, DiffReviewComment, ReviewChange, ReviewChangeRange, ReviewFile, ReviewFileContents, ReviewLineTarget, ReviewResult, ReviewScope, ReviewState, ReviewWindowData } from "../types.js";
 import { formatIntentLabel, formatScopeLabel, getReviewFileDisplayPath } from "../types.js";
 
 interface LoadedEntryReady {
@@ -69,6 +69,7 @@ interface ReviewAppOptions {
   repoRoot: string;
   changes: ReviewChange[];
   selectedChange: ReviewChange;
+  stackRange: ReviewChangeRange | null;
   loadFileContents: (repoRoot: string, file: ReviewFile, scope: ReviewScope) => Promise<ReviewFileContents>;
   loadChange: (revision: string) => Promise<ReviewWindowData>;
   commentShortcuts: CommentShortcut[];
@@ -244,6 +245,16 @@ function padLine(text: string, width: number): string {
   const truncated = truncateToWidth(text, width, "", true);
   const padding = Math.max(0, width - visibleWidth(truncated));
   return truncated + " ".repeat(padding);
+}
+
+export function alignHeaderColumns(left: string, right: string, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const leftText = truncateToWidth(left, safeWidth, "", false);
+  const remainingWidth = safeWidth - visibleWidth(leftText);
+  if (remainingWidth <= 1) return leftText;
+
+  const rightText = truncateToWidth(right, remainingWidth - 1, "…", false);
+  return `${leftText}${" ".repeat(remainingWidth - visibleWidth(rightText))}${rightText}`;
 }
 
 function wrapAnsiText(text: string, width: number, wrapLines: boolean): string[] {
@@ -801,10 +812,59 @@ export function filterReviewChanges(changes: ReviewChange[], query: string): Rev
   ].some((value) => value.toLowerCase().includes(normalized)));
 }
 
+export function getReviewChangeDisplayId(change: ReviewChange): string {
+  return change.changeId.slice(0, Math.max(8, change.changeIdPrefix.length));
+}
+
+export function formatReviewChangeSummary(change: ReviewChange): string {
+  return `${getReviewChangeDisplayId(change)} ${change.description.trim() || "(empty)"}`;
+}
+
+export function formatReviewChangeRange(range: ReviewChangeRange, width: number): string {
+  const fullSummary = `${formatReviewChangeSummary(range.start)} → ${formatReviewChangeSummary(range.end)}`;
+  if (visibleWidth(fullSummary) <= width) return fullSummary;
+
+  const startId = getReviewChangeDisplayId(range.start);
+  const endId = getReviewChangeDisplayId(range.end);
+  const fixedWidth = visibleWidth(`${startId}  → ${endId} `);
+  const descriptionWidth = Math.max(0, width - fixedWidth);
+  if (descriptionWidth < 2) return truncateToWidth(fullSummary, width, "…", false);
+
+  const startWidth = Math.floor(descriptionWidth / 2);
+  const endWidth = descriptionWidth - startWidth;
+  const startDescription = truncateToWidth(range.start.description.trim() || "(empty)", startWidth, "…", false);
+  const endDescription = truncateToWidth(range.end.description.trim() || "(empty)", endWidth, "…", false);
+  return `${startId} ${startDescription} → ${endId} ${endDescription}`;
+}
+
+export function renderReviewChangeId(theme: Theme, change: ReviewChange): string {
+  const changeId = getReviewChangeDisplayId(change);
+  const prefixLength = Math.min(change.changeIdPrefix.length, changeId.length);
+  const importantPrefix = theme.bold(theme.fg("accent", changeId.slice(0, prefixLength)));
+  return `${importantPrefix}${theme.fg("syntaxVariable", changeId.slice(prefixLength))}`;
+}
+
+function renderReviewChangeSummary(theme: Theme, change: ReviewChange, description?: string): string {
+  return `${renderReviewChangeId(theme, change)} ${theme.fg("muted", description ?? (change.description.trim() || "(empty)"))}`;
+}
+
+function renderReviewChangeRange(theme: Theme, range: ReviewChangeRange, width: number): string {
+  const summary = formatReviewChangeRange(range, width);
+  const startId = getReviewChangeDisplayId(range.start);
+  const endId = getReviewChangeDisplayId(range.end);
+  const separator = ` → ${endId} `;
+  const separatorIndex = summary.indexOf(separator, startId.length);
+  if (separatorIndex < 0) return theme.fg("muted", summary);
+
+  const startDescription = summary.slice(startId.length + 1, separatorIndex);
+  const endDescription = summary.slice(separatorIndex + separator.length);
+  return `${renderReviewChangeSummary(theme, range.start, startDescription)} ${theme.fg("muted", "→")} ${renderReviewChangeSummary(theme, range.end, endDescription)}`;
+}
+
 function formatReviewChangeLabel(change: ReviewChange): string {
   const workingCopy = change.isWorkingCopy ? "@ " : "  ";
   const bookmarks = change.bookmarks.length === 0 ? "" : ` ${change.bookmarks.join(" ")}`;
-  return `${workingCopy}${change.changeId.slice(0, 8)} ${change.commitId.slice(0, 8)}${bookmarks} ${change.description}`;
+  return `${workingCopy}${getReviewChangeDisplayId(change)} ${change.commitId.slice(0, 8)}${bookmarks} ${change.description}`;
 }
 
 class ReviewApp {
@@ -814,6 +874,7 @@ class ReviewApp {
   private files: ReviewFile[];
   private changes: ReviewChange[];
   private selectedChange: ReviewChange;
+  private stackRange: ReviewChangeRange | null;
   private readonly submittedFiles = new Map<string, ReviewFile>();
   private state: ReviewState;
   private cache = new Map<string, LoadedEntry>();
@@ -858,6 +919,7 @@ class ReviewApp {
     this.files = options.files;
     this.changes = options.changes;
     this.selectedChange = options.selectedChange;
+    this.stackRange = options.stackRange;
     for (const file of this.files) this.submittedFiles.set(file.id, file);
     this.state = ensureActiveFile(createInitialReviewState(this.files), this.files);
     this.searchBuffer = this.state.searchQuery;
@@ -1014,6 +1076,7 @@ class ReviewApp {
       this.files = data.files;
       this.changes = data.changes;
       this.selectedChange = data.selectedChange;
+      this.stackRange = data.stackRange;
       for (const file of data.files) this.submittedFiles.set(file.id, file);
       this.state = ensureActiveFile({
         ...this.state,
@@ -2375,13 +2438,21 @@ class ReviewApp {
     const scopeTabs = SEARCHABLE_SCOPES.map((scope, index) => {
       const active = this.state.activeScope === scope;
       const selection = scope === "change"
-        ? ` ${this.selectedChange.isWorkingCopy ? "@" : this.selectedChange.changeId.slice(0, 8)}`
+        ? ` ${this.selectedChange.isWorkingCopy ? "@" : getReviewChangeDisplayId(this.selectedChange)}`
         : " trunk()→@";
       const text = `${index + 1}:${formatScopeLabel(scope)}${selection}`;
       return active ? this.theme.bg("selectedBg", this.theme.fg("text", ` ${text} `)) : this.theme.fg("muted", ` ${text} `);
     }).join(" ");
 
-    const headerLines = [truncateToWidth(scopeTabs, frameInnerWidth, "", false)];
+    const scopeDetailWidth = Math.max(1, frameInnerWidth - visibleWidth(scopeTabs) - 1);
+    const scopeDetailContentWidth = Math.max(1, scopeDetailWidth - 2);
+    const scopeDetail = this.state.activeScope === "change"
+      ? renderReviewChangeSummary(this.theme, this.selectedChange)
+      : this.stackRange == null
+        ? this.theme.fg("muted", "range unavailable")
+        : renderReviewChangeRange(this.theme, this.stackRange, scopeDetailContentWidth);
+    const parenthesizedScopeDetail = `${this.theme.fg("muted", "(")}${scopeDetail}${this.theme.fg("muted", ")")}`;
+    const headerLines = [alignHeaderColumns(scopeTabs, parenthesizedScopeDetail, frameInnerWidth)];
 
     const body: string[] = [];
 

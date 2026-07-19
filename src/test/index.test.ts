@@ -54,9 +54,10 @@ describe("slop review extension", () => {
     };
     const files: unknown[] = [];
     const result = { type: "submit", allComment: "Review this.", allIntent: "fix", comments: [] };
-    const selectedChange = { changeId: "change", commitId: "commit", description: "active", bookmarks: [], isWorkingCopy: true };
+    const selectedChange = { changeId: "change", changeIdPrefix: "c", commitId: "commit", description: "active", bookmarks: [], isWorkingCopy: true };
     const changes = [selectedChange];
-    mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/repo", files, changes, selectedChange });
+    const stackRange = { start: selectedChange, end: selectedChange };
+    mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/repo", files, changes, selectedChange, stackRange });
     mocks.runReviewApp.mockResolvedValue({ result, files });
     mocks.composeReviewPrompt.mockReturnValue("prompt body");
 
@@ -73,6 +74,7 @@ describe("slop review extension", () => {
       files,
       changes,
       selectedChange,
+      stackRange,
       loadChange: expect.any(Function),
       commentShortcuts: [],
     }));
@@ -82,5 +84,13 @@ describe("slop review extension", () => {
     expect(mocks.composeReviewPrompt).toHaveBeenCalledWith(files, result);
     expect(ctx.ui.setEditorText).toHaveBeenCalledWith("prompt body");
     expect(ctx.ui.notify).toHaveBeenCalledWith("slopchop config: bad shortcut config", "warning");
+
+    mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/other-workspace", files, changes, selectedChange, stackRange });
+    await commands.get("diff")?.handler("../other-workspace", ctx);
+
+    expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/other-workspace");
+    expect(mocks.runReviewApp).toHaveBeenLastCalledWith(ctx, expect.objectContaining({
+      repoRoot: "/other-workspace",
+    }));
   });
 });

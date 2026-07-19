@@ -3,9 +3,15 @@ export type ReviewScope = "change" | "stack";
 export interface ReviewChange {
   commitId: string;
   changeId: string;
+  changeIdPrefix: string;
   description: string;
   bookmarks: string[];
   isWorkingCopy: boolean;
+}
+
+export interface ReviewChangeRange {
+  start: ReviewChange;
+  end: ReviewChange;
 }
 
 export interface ReviewWindowData {
@@ -13,6 +19,7 @@ export interface ReviewWindowData {
   files: ReviewFile[];
   changes: ReviewChange[];
   selectedChange: ReviewChange;
+  stackRange: ReviewChangeRange | null;
 }
 
 export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "copied";

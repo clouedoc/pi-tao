@@ -29,14 +29,16 @@ pi install git:github.com/clouedoc/pi-slopchop-jj
 Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
 
 ```text
-/diff
+/diff [workspace]
 ```
+
+The optional path opens another Jujutsu workspace, for example `/diff ../other-workspace`.
 
 The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
 
 ## Basic flow
 
-1. Run `/diff`.
+1. Run `/diff`, optionally with another workspace path such as `/diff ../other-workspace`.
 2. Pick Change or Stack with `1` or `2`. In Change, press `r` to choose another change.
 3. Move to the file and line you want to review.
 4. Add feedback:

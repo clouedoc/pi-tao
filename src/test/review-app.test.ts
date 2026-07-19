@@ -2,7 +2,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { buildStructuredDiff } from "../diff.js";
 import type { DiffReviewComment, ReviewChange, ReviewFile, ReviewState } from "../types.js";
-import { buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, filterReviewChanges, formatFocusStatus, formatPaneTitle, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, parseMouseWheelInput, renderCenteredOverlay, shouldStackPanes } from "../ui/review-app.js";
+import { alignHeaderColumns, buildCommentPanelEmptyStateLines, buildCommentPanelTextLines, buildDisplayRows, buildEditorLaunchCommand, buildFooterLines, buildHelpPanelLines, buildSideBySideDisplayRows, filterReviewChanges, formatFocusStatus, formatPaneTitle, formatReviewChangeRange, formatReviewChangeSummary, formatSelectedLineTargetLabel, getCancelAction, getDraftCommentCount, getEditorLineForTarget, getHalfPageStep, getPaneLayout, getRelatedFileMarker, getRelatedFilePaths, getSideBySidePairedLineTarget, getStackedPaneLayout, parseMouseWheelInput, renderCenteredOverlay, renderReviewChangeId, shouldStackPanes } from "../ui/review-app.js";
 
 function makeFile(path: string, flags?: Partial<ReviewFile>): ReviewFile {
   return {
@@ -147,10 +147,58 @@ describe("pane layout", () => {
   });
 });
 
+describe("review header", () => {
+  it("right-aligns change details beside the tabs", () => {
+    const header = alignHeaderColumns("1:Change  2:Stack", "abcd1234 Add parser", 40);
+
+    expect(visibleWidth(header)).toBe(40);
+    expect(header.endsWith("abcd1234 Add parser")).toBe(true);
+  });
+
+  it("shows an explicit label for an empty change description", () => {
+    expect(formatReviewChangeSummary({
+      changeId: "abcd1234more",
+      changeIdPrefix: "a",
+      commitId: "a".repeat(40),
+      description: "",
+      bookmarks: [],
+      isWorkingCopy: false,
+    })).toBe("abcd1234 (empty)");
+  });
+
+  it("uses dedicated colors for the important prefix and remaining change ID", () => {
+    const theme = {
+      fg(color: string, text: string) { return `<${color}>${text}</${color}>`; },
+      bold(text: string) { return `<bold>${text}</bold>`; },
+    };
+    const change: ReviewChange = {
+      changeId: "abcd1234more",
+      changeIdPrefix: "ab",
+      commitId: "a".repeat(40),
+      description: "Change title",
+      bookmarks: [],
+      isWorkingCopy: false,
+    };
+
+    expect(renderReviewChangeId(theme as any, change)).toBe("<bold><accent>ab</accent></bold><syntaxVariable>cd1234</syntaxVariable>");
+  });
+
+  it("keeps both change IDs and titles in a constrained stack range", () => {
+    const summary = formatReviewChangeRange({
+      start: { changeId: "start123more", changeIdPrefix: "s", commitId: "a".repeat(40), description: "Start change title", bookmarks: [], isWorkingCopy: false },
+      end: { changeId: "end45678more", changeIdPrefix: "e", commitId: "b".repeat(40), description: "End change title", bookmarks: [], isWorkingCopy: true },
+    }, 40);
+
+    expect(visibleWidth(summary)).toBeLessThanOrEqual(40);
+    expect(summary).toContain("start123 Start");
+    expect(summary).toContain("end45678 End");
+  });
+});
+
 describe("change picker", () => {
   const changes: ReviewChange[] = [
-    { changeId: "wxyz1234", commitId: "a".repeat(40), description: "add parser", bookmarks: ["feature"], isWorkingCopy: true },
-    { changeId: "abcd5678", commitId: "b".repeat(40), description: "update docs", bookmarks: [], isWorkingCopy: false },
+    { changeId: "wxyz1234", changeIdPrefix: "w", commitId: "a".repeat(40), description: "add parser", bookmarks: ["feature"], isWorkingCopy: true },
+    { changeId: "abcd5678", changeIdPrefix: "a", commitId: "b".repeat(40), description: "update docs", bookmarks: [], isWorkingCopy: false },
   ];
 
   it("filters changes by IDs, bookmarks, and description", () => {

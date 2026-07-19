@@ -109,6 +109,7 @@ const JJ_FILE_LIST_TEMPLATE = [
 const JJ_CHANGE_TEMPLATE = [
   `'\{"commitId":' ++ stringify(commit_id).escape_json()`,
   ` ++ ',"changeId":' ++ stringify(change_id).escape_json()`,
+  ` ++ ',"changeIdPrefix":' ++ stringify(change_id.shortest()).escape_json()`,
   ` ++ ',"description":' ++ description.first_line().escape_json()`,
   ` ++ ',"bookmarks":' ++ stringify(bookmarks.map(|b| b.name()).join("\\n")).escape_json()`,
   ` ++ "}\\n"`,
@@ -130,6 +131,7 @@ interface JjFileListEntry {
 interface JjChangeTemplateEntry {
   commitId: string;
   changeId: string;
+  changeIdPrefix: string;
   description: string;
   bookmarks: string;
 }
@@ -252,15 +254,33 @@ function parseJjFileList(output: string): string[] {
     .map((entry) => normalizeJjPath(entry.path));
 }
 
-async function getReviewChanges(pi: ExtensionAPI, repoRoot: string, workingCopyCommitId: string): Promise<ReviewChange[]> {
-  const output = await runJj(pi, repoRoot, ["log", "--no-graph", "-r", "all() ~ root() ~ merges()", "-T", JJ_CHANGE_TEMPLATE]);
-  return parseJsonLines<JjChangeTemplateEntry>(output, "change list").map((entry) => ({
+function toReviewChange(entry: JjChangeTemplateEntry, workingCopyCommitId: string): ReviewChange {
+  return {
     commitId: entry.commitId,
     changeId: entry.changeId,
+    changeIdPrefix: entry.changeIdPrefix,
     description: entry.description || "(no description)",
     bookmarks: entry.bookmarks.length === 0 ? [] : entry.bookmarks.split("\n"),
     isWorkingCopy: entry.commitId === workingCopyCommitId,
-  }));
+  };
+}
+
+async function getReviewChanges(pi: ExtensionAPI, repoRoot: string, workingCopyCommitId: string): Promise<ReviewChange[]> {
+  const output = await runJj(pi, repoRoot, ["log", "--no-graph", "-r", "all() ~ root() ~ merges()", "-T", JJ_CHANGE_TEMPLATE]);
+  return parseJsonLines<JjChangeTemplateEntry>(output, "change list")
+    .map((entry) => toReviewChange(entry, workingCopyCommitId));
+}
+
+async function getReviewChange(
+  pi: ExtensionAPI,
+  repoRoot: string,
+  revision: string,
+  workingCopyCommitId: string,
+): Promise<ReviewChange> {
+  const output = await runJj(pi, repoRoot, ["log", "--no-graph", "-r", revision, "-T", JJ_CHANGE_TEMPLATE]);
+  const entries = parseJsonLines<JjChangeTemplateEntry>(output, "change metadata");
+  if (entries.length !== 1) throw new Error(`Could not resolve one JJ change for ${revision}.`);
+  return toReviewChange(entries[0]!, workingCopyCommitId);
 }
 
 function parseRevisionInfo(output: string): JjRevisionInfo {
@@ -449,12 +469,19 @@ async function buildReviewWindowData(
   const stackChanges = forkPoint == null
     ? []
     : await getJjRangeChanges(pi, repoRoot, forkPoint.commitId, workingCopy.commitId);
+  const firstStackRevision = forkPoint == null
+    ? null
+    : await getOptionalRevisionInfo(pi, repoRoot, `roots(${forkPoint.commitId}..${workingCopy.commitId})`);
+  const stackStartRevision = firstStackRevision ?? forkPoint;
 
   const changes = await getReviewChanges(pi, repoRoot, workingCopy.commitId);
-  const selectedChange = changes.find((change) => change.commitId === selectedRevision.commitId);
-  if (selectedChange == null) {
-    throw new Error(`Could not find selected JJ change ${revision}.`);
-  }
+  const selectedChange = await getReviewChange(pi, repoRoot, selectedRevision.commitId, workingCopy.commitId);
+  const stackEndChange = selectedRevision.commitId === workingCopy.commitId
+    ? selectedChange
+    : await getReviewChange(pi, repoRoot, workingCopy.commitId, workingCopy.commitId);
+  const stackStartChange = stackStartRevision == null
+    ? null
+    : await getReviewChange(pi, repoRoot, stackStartRevision.commitId, workingCopy.commitId);
 
   const currentPaths = await getCurrentPaths(pi, repoRoot, workingCopy.commitId);
   const currentPathSet = new Set(currentPaths);
@@ -536,6 +563,7 @@ async function buildReviewWindowData(
     files: [...seeds.values()].map(createReviewFile).sort((a, b) => a.path.localeCompare(b.path)),
     changes,
     selectedChange,
+    stackRange: stackStartChange == null ? null : { start: stackStartChange, end: stackEndChange },
   };
 }
 

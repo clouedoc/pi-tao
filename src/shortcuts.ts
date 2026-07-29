@@ -38,7 +38,7 @@ export interface LoadedCommentShortcuts {
   path: string;
 }
 
-const CONFIG_FILE_NAME = "slopchop.json";
+const CONFIG_FILE_NAME = "tao.json";
 
 export const BUILTIN_COMMENT_SHORTCUTS: CommentShortcut[] = [
   { id: "explain-added", key: "e", label: "explain", intent: "discuss", side: "added", text: "Explain what this code is doing." },
@@ -102,7 +102,7 @@ export function parseShortcutConfig(config: unknown): { shortcuts: CommentShortc
   const parsed = (config ?? {}) as ShortcutConfigFile;
 
   if (parsed.version != null && parsed.version !== 1) {
-    warnings.push(`Unsupported slopchop shortcut config version: ${String(parsed.version)}. Expected version 1.`);
+    warnings.push(`Unsupported tao shortcut config version: ${String(parsed.version)}. Expected version 1.`);
   }
 
   const disabledBuiltinIds = new Set<string>();

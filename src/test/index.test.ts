@@ -33,7 +33,7 @@ describe("slop review extension", () => {
     mocks.loadCommentShortcuts.mockReturnValue({
       shortcuts: [],
       warnings: ["bad shortcut config"],
-      path: "/tmp/slopchop.json",
+      path: "/tmp/tao.json",
     });
   });
 
@@ -83,7 +83,7 @@ describe("slop review extension", () => {
     expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/repo", "older-commit");
     expect(mocks.composeReviewPrompt).toHaveBeenCalledWith(files, result);
     expect(ctx.ui.setEditorText).toHaveBeenCalledWith("prompt body");
-    expect(ctx.ui.notify).toHaveBeenCalledWith("slopchop config: bad shortcut config", "warning");
+    expect(ctx.ui.notify).toHaveBeenCalledWith("tao config: bad shortcut config", "warning");
 
     mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/other-workspace", files, changes, selectedChange, stackRange });
     await commands.get("jj:diff")?.handler("../other-workspace", ctx);

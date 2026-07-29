@@ -328,7 +328,7 @@ describe("action and shortcut help rendering", () => {
   it("wraps full help text to the comments sidebar width", () => {
     const lines = buildHelpPanelLines(plainTheme as any, 24, [
       { id: "explain-added", key: "e", label: "explain", intent: "discuss", side: "added", text: "Explain what this code is doing." },
-    ], "/home/user/.pi/agent/extensions/slopchop.json");
+    ], "/home/user/.pi/agent/extensions/tao.json");
 
     expect(lines).toContain("Navigation");
     expect(lines).toContain("Diff actions");

@@ -2495,7 +2495,7 @@ class ReviewApp {
 
     const footer = buildFooterLines(this.theme, promptStatus, frameInnerWidth);
 
-    const rendered = renderOuterFrame(this.lastWidth, totalHeight, this.theme, "slopchop", [...headerLines, ...body, ...footer], frameColor);
+    const rendered = renderOuterFrame(this.lastWidth, totalHeight, this.theme, "tao", [...headerLines, ...body, ...footer], frameColor);
     if (!this.confirmCancel) return rendered;
     return renderCenteredOverlay(rendered, this.renderCancelConfirmation(), this.lastWidth, totalHeight);
   }

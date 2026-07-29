@@ -101,7 +101,7 @@ function diffWordTokens(oldContent: string, newContent: string): WordDiffPart[] 
 }
 
 /**
- * Adapted from Pi's internal diff renderer so slopchop follows Pi's intra-line
+ * Adapted from Pi's internal diff renderer so tao follows Pi's intra-line
  * diff highlighting behavior while still controlling its own gutters and
  * comment markers.
  */

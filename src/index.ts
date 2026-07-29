@@ -11,7 +11,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
 
   function notifyShortcutWarnings(ctx: ExtensionContext, warnings: string[]): void {
     if (warnings.length === 0 || !ctx.hasUI) return;
-    ctx.ui.notify(`slopchop config: ${warnings.join(" ")}`, "warning");
+    ctx.ui.notify(`tao config: ${warnings.join(" ")}`, "warning");
   }
 
   async function openReview(ctx: ExtensionContext, args: string): Promise<void> {

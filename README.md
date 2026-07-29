@@ -1,40 +1,10 @@
-# pi-slopchop-jj
+# pi-tao
 
-> [!NOTE]
-> This is a Jujutsu-only fork of [pi-slopchop](https://github.com/robzolkos/pi-slopchop). It focuses on `jj` workflows and does not support Git repositories.
+`pi-tao` is a simple extension that allows you to keep peace of mind
+while doing AI-assisted programming.
 
-`pi-slopchop-jj` lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
-
-It also ships a few Jujutsu workflow commands: `/jj`, `/jj:describe`, `/jj:cd`, and `/jj:cwd`.
-
-## Review scopes
-
-| Key | Scope | Revisions |
-| --- | --- | --- |
-| `1` | Change | selected change's parent to the selected change |
-| `2` | Stack | `fork_point(trunk() \| @)` to `@` |
-
-Change defaults to `@`. Press `r` in the Change scope to search by change ID, commit ID, bookmark, or description and review an older change.
-
-The UI opens Change by default. If `@` is empty but Stack has files, it opens Stack.
-
-Stack files are ordered for review priority: files referenced by more changed files first, then modified/renamed before added/copied before deleted, then source files before tests/docs/changesets, then path order.
-
-## Install
-
-```bash
-pi install git:github.com/clouedoc/pi-slopchop-jj
-```
-
-Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
-
-```text
-/jj:diff [workspace]
-```
-
-The optional path opens another Jujutsu workspace, for example `/jj:diff ../other-workspace`. Without a path, `/jj:diff` uses the workspace selected by `/jj:cd`, or the current working directory.
-
-The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
+It's changing fast and I'm not sure what to put here... but trust me,
+it's the next big thing.
 
 ## Basic flow
 
@@ -53,124 +23,29 @@ The review UI does not send feedback automatically. It inserts the generated pro
 
 For fast repeated feedback, select a changed line, press `t`, then press a template shortcut from the comments panel. Press `e` afterwards to refine the generated comment.
 
-## Feedback model
+## Installation
 
-### Line comments
+```bash
+pi install git:github.com/clouedoc/pi-tao
+```
 
-Line comments attach to an added or deleted line. Hold `Shift+↑` or `Shift+↓` to extend the selection across a range on the same diff side.
-
-Examples:
-
-- `Why was this deleted?`
-- `What is this code doing?`
-- `Use a clearer name here.`
-
-### File comments
-
-Use file comments when feedback applies to the whole file change.
-
-Examples:
-
-- `Explain this file-level refactor.`
-- `This file now does too much.`
-
-### Whole-review note
-
-Use a whole-review note for feedback about the entire reviewed change or stack.
-
-Examples:
-
-- `Explain the overall intention of this change.`
-- `Check whether this stack can be simplified.`
-
-### FIX and DISCUSS
-
-Use `FIX` when the next agent turn should change something. Use `DISCUSS` for explanation, rationale, tradeoffs, or proposals.
-
-The generated prompt distinguishes FIX-only, DISCUSS-only, and mixed reviews so discussion comments do not become accidental edits.
-
-## Navigation
-
-### Global
-
-- `1 / 2` — switch between Change and Stack
-- `Tab / Shift+Tab` — cycle focus
-- `/` — search files
-- `?` — toggle help
-- `w` — toggle wrapping
-- `v` — toggle unified / side-by-side diff
-- `u` — toggle unchanged context in the Change scope
-- `h` — hide/show comments
-- `s` — insert the generated prompt into Pi's editor
-- `Esc` or `Ctrl+C` — exit, with confirmation when draft feedback exists
-- mouse wheel — scroll the pane under the cursor
-
-### Navigator
-
-- `↑↓` or `j/k` — move between files
-- `Ctrl+d / Ctrl+u` — move by half a pane
-- `gg / G` — jump to top / bottom
-- `r` — choose a change in the Change scope; toggle related-files filtering in Stack
-- `Enter` — focus the diff
-
-In related mode, `→` means the active file references that file, `←` means that file references the active file, and `↔` means both.
-
-### Diff
-
-- `↑↓` or `j/k` — move between selectable lines
-- `Shift+↑↓` — extend the line range on the current side
-- `← / →` — choose the deleted or added side of a replacement in side-by-side view
-- `Ctrl+d / Ctrl+u` — move by half a pane
-- `gg / G` — jump to top / bottom
-- `n / p` — next / previous hunk
-- `o` — open the selected location in `$EDITOR`
-- `f` — add a FIX line comment
-- `d` or `c` — add a DISCUSS line comment
-- `e` — edit the selected line comment
-- `x` — delete the selected line comment
-- `l` — add a file comment
-- `a` — add a whole-review note
-- `t` — open template shortcut mode
-
-Side-by-side view keeps deleted lines on the left and added lines on the right. Line comments attach to the selected side and line number.
-
-Comment markers in the diff gutter:
-
-- `●` — FIX
-- `◆` — DISCUSS
-
-### Comments
-
-- `↑↓` or `j/k` — move through comments
-- `Ctrl+d / Ctrl+u` — move by half a pane
-- `gg / G` — jump to top / bottom
-- `e` or `Enter` — edit
-- `d` — delete
-
-### Comment editor
-
-- `Tab` — toggle FIX / DISCUSS
-- `Enter` — save
-- `Shift+Enter` — newline
-- `Esc` — cancel
-
-## Jujutsu workflow commands
+## Commands
 
 | Command | Description |
 | --- | --- |
-| `/jj` | Send the current change description to the agent as the task specification |
-| `/jj:describe` | Edit the current change description in your editor |
-| `/jj:cd <path>` | Set the default workspace used by `/jj:diff` and `/jj` |
 | `/jj:cwd` | Show the default workspace used by `/jj:diff` and `/jj` |
+| `/jj:cd <path>` | Set the default workspace used by `/jj:diff` and `/jj` |
+| `/jj:describe` | Edit the current change description in your editor |
+| `/jj` | Send the current change description to the agent as the task specification |
 
 `/jj` treats the description of `@` as the complete task specification and asks the agent to implement it without reorganizing jj changes. It queues the task as a follow-up when the agent is busy.
 
-## Template shortcut configuration
+## `jj:diff` Template shortcut configuration
 
 Optional user configuration lives at:
 
 ```text
-~/.pi/agent/extensions/slopchop.json
+~/.pi/agent/extensions/tao.json
 ```
 
 Example:
@@ -200,3 +75,8 @@ Example:
 
 Each custom shortcut requires a stable `id`, one-character `key`, short `label`, `fix` or `discuss` intent, `added`, `deleted`, or `both` side, and comment `text`.
 
+
+## Credits
+
+> [!NOTE]
+> `pi-tao` was initially forked from [pi-slopchop](https://github.com/robzolkos/pi-slopchop).

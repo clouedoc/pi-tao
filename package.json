@@ -1,5 +1,5 @@
 {
-  "name": "pi-slopchop-jj",
+  "name": "pi-tao",
   "version": "0.10.1",
   "type": "module",
   "description": "Terminal-native Jujutsu diff review and annotation workflow for the Pi coding agent.",
@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/clouedoc/pi-slopchop-jj.git"
+    "url": "git+https://github.com/clouedoc/pi-tao.git"
   },
-  "homepage": "https://github.com/clouedoc/pi-slopchop-jj#readme",
+  "homepage": "https://github.com/clouedoc/pi-tao#readme",
   "bugs": {
-    "url": "https://github.com/clouedoc/pi-slopchop-jj/issues"
+    "url": "https://github.com/clouedoc/pi-tao/issues"
   },
   "files": [
     "src/diff.ts",

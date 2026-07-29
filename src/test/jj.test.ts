@@ -101,7 +101,7 @@ describe("JJ workspace integration", () => {
   });
 
   jjIt("reviews the active nested JJ workspace", async () => {
-    const repoRoot = await mkdtemp(join(tmpdir(), "pi-slopchop-jj-test-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "pi-tao-test-"));
     const workspaceRoot = join(repoRoot, ".wp", "my-workspace");
     try {
       await run("jj", ["git", "init", "--colocate", "."], repoRoot);

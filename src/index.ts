@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getDefaultWorkspaceRoot, registerJjCommands } from "./jj-commands.js";
 import { getReviewWindowData, loadReviewFileContents } from "./jj.js";
 import { composeReviewPrompt } from "./prompt.js";
 import { loadCommentShortcuts } from "./shortcuts.js";
@@ -22,7 +23,10 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
     activeReview = true;
     try {
       const requestedRoot = args.trim();
-      const reviewCwd = requestedRoot.length === 0 ? ctx.cwd : resolve(ctx.cwd, requestedRoot);
+      const reviewCwd =
+        requestedRoot.length === 0
+          ? (getDefaultWorkspaceRoot() ?? ctx.cwd)
+          : resolve(ctx.cwd, requestedRoot);
       const { repoRoot, files, changes, selectedChange, stackRange } = await getReviewWindowData(pi, reviewCwd);
       const shortcutConfig = loadCommentShortcuts();
       if (files.length === 0 && changes.length === 0) {
@@ -66,6 +70,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
   };
 
   pi.registerCommand("diff", reviewCommand);
+  registerJjCommands(pi);
 
   pi.on("session_shutdown", async () => {
     activeReview = false;

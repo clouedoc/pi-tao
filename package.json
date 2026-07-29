@@ -16,6 +16,7 @@
   "files": [
     "src/diff.ts",
     "src/index.ts",
+    "src/jj-commands.ts",
     "src/jj.ts",
     "src/pi-render.ts",
     "src/prompt.ts",

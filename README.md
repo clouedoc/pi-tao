@@ -7,7 +7,7 @@
 
 It lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
 
-It also ships a few Jujutsu workflow commands: `/jj`, `/jj-describe`, `/jj-cd`, and `/jj-cwd`.
+It also ships a few Jujutsu workflow commands: `/jj`, `/jj:describe`, `/jj:cd`, and `/jj:cwd`.
 
 ## Review scopes
 
@@ -34,7 +34,7 @@ Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
 /diff [workspace]
 ```
 
-The optional path opens another Jujutsu workspace, for example `/diff ../other-workspace`. Without a path, `/diff` uses the workspace selected by `/jj-cd`, or the current working directory.
+The optional path opens another Jujutsu workspace, for example `/diff ../other-workspace`. Without a path, `/diff` uses the workspace selected by `/jj:cd`, or the current working directory.
 
 The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
 
@@ -159,9 +159,9 @@ Comment markers in the diff gutter:
 | Command | Description |
 | --- | --- |
 | `/jj` | Send the current change description to the agent as the task specification |
-| `/jj-describe` | Edit the current change description in your editor |
-| `/jj-cd <path>` | Set the default workspace used by `/diff` and `/jj` |
-| `/jj-cwd` | Show the default workspace used by `/diff` and `/jj` |
+| `/jj:describe` | Edit the current change description in your editor |
+| `/jj:cd <path>` | Set the default workspace used by `/diff` and `/jj` |
+| `/jj:cwd` | Show the default workspace used by `/diff` and `/jj` |
 
 `/jj` treats the description of `@` as the complete task specification and asks the agent to implement it without reorganizing jj changes. It queues the task as a follow-up when the agent is busy.
 

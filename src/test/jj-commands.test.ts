@@ -34,19 +34,19 @@ describe("jj commands", () => {
     vi.clearAllMocks();
   });
 
-  it("sets the default workspace with /jj-cd and reports it with /jj-cwd", async () => {
+  it("sets the default workspace with /jj:cd and reports it with /jj:cwd", async () => {
     const { pi, commands, getDefaultWorkspaceRoot } = await createPi({
       root: { code: 0, stdout: "/other-workspace\n", stderr: "" },
     });
     const ctx = createCtx();
 
-    await commands.get("jj-cd")?.handler("../other-workspace", ctx as never);
+    await commands.get("jj:cd")?.handler("../other-workspace", ctx as never);
 
     expect(pi.exec).toHaveBeenCalledWith("jj", ["root"], { cwd: "/other-workspace" });
     expect(getDefaultWorkspaceRoot()).toBe("/other-workspace");
     expect(ctx.ui.notify).toHaveBeenCalledWith("Default workspace set to /other-workspace", "info");
 
-    await commands.get("jj-cwd")?.handler("", ctx as never);
+    await commands.get("jj:cwd")?.handler("", ctx as never);
 
     expect(pi.exec).toHaveBeenLastCalledWith("jj", ["root"], { cwd: "/other-workspace" });
     expect(ctx.ui.notify).toHaveBeenLastCalledWith("/other-workspace", "info");
@@ -56,7 +56,7 @@ describe("jj commands", () => {
     const { commands, getDefaultWorkspaceRoot } = await createPi({ root: { code: 1, stdout: "", stderr: "no repo" } });
     const ctx = createCtx();
 
-    await commands.get("jj-cd")?.handler("../not-a-workspace", ctx as never);
+    await commands.get("jj:cd")?.handler("../not-a-workspace", ctx as never);
 
     expect(getDefaultWorkspaceRoot()).toBeUndefined();
     expect(ctx.ui.notify).toHaveBeenCalledWith("/not-a-workspace is not inside a Jujutsu workspace", "warning");

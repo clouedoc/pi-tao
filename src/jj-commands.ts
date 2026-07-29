@@ -48,7 +48,7 @@ async function readWorkspaceRoot(pi: ExtensionAPI, ctx: ExtensionCommandContext)
 async function handleJjCdCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   const path = args.trim();
   if (!path) {
-    ctx.ui.notify("Usage: /jj-cd <path>", "warning");
+    ctx.ui.notify("Usage: /jj:cd <path>", "warning");
     return;
   }
 
@@ -65,7 +65,7 @@ async function handleJjCdCommand(args: string, ctx: ExtensionCommandContext, pi:
 
 async function handleJjCwdCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   if (args.trim()) {
-    ctx.ui.notify("/jj-cwd takes no arguments", "warning");
+    ctx.ui.notify("/jj:cwd takes no arguments", "warning");
     return;
   }
 
@@ -75,12 +75,12 @@ async function handleJjCwdCommand(args: string, ctx: ExtensionCommandContext, pi
 
 async function handleJjDescribeCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   if (args.trim()) {
-    ctx.ui.notify("/jj-describe takes no arguments", "warning");
+    ctx.ui.notify("/jj:describe takes no arguments", "warning");
     return;
   }
 
   if (!ctx.hasUI) {
-    ctx.ui.notify("/jj-describe requires Pi's interactive TUI", "warning");
+    ctx.ui.notify("/jj:describe requires Pi's interactive TUI", "warning");
     return;
   }
 
@@ -182,18 +182,18 @@ export function registerJjCommands(pi: ExtensionAPI): void {
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCommand(args, ctx, pi),
   });
 
-  pi.registerCommand("jj-describe", {
+  pi.registerCommand("jj:describe", {
     description: "Edit the current jj change description in your editor",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjDescribeCommand(args, ctx, pi),
   });
 
-  pi.registerCommand("jj-cd", {
+  pi.registerCommand("jj:cd", {
     description: "Set the default Jujutsu workspace used by /diff and /jj",
     getArgumentCompletions: getDirectoryCompletions,
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCdCommand(args, ctx, pi),
   });
 
-  pi.registerCommand("jj-cwd", {
+  pi.registerCommand("jj:cwd", {
     description: "Show the default Jujutsu workspace used by /diff and /jj",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCwdCommand(args, ctx, pi),
   });

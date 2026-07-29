@@ -63,7 +63,7 @@ describe("slop review extension", () => {
 
     slopReviewExtension(pi as never);
 
-    expect([...commands.keys()]).toEqual(["diff", "jj", "jj-describe", "jj-cd", "jj-cwd"]);
+    expect([...commands.keys()]).toEqual(["diff", "jj", "jj:describe", "jj:cd", "jj:cwd"]);
     expect(pi.registerShortcut).not.toHaveBeenCalled();
 
     await commands.get("diff")?.handler("", ctx);
@@ -94,7 +94,7 @@ describe("slop review extension", () => {
     }));
   });
 
-  it("reviews the workspace selected by /jj-cd when /diff gets no path", async () => {
+  it("reviews the workspace selected by /jj:cd when /diff gets no path", async () => {
     const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
@@ -109,7 +109,7 @@ describe("slop review extension", () => {
     mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/selected-workspace", files: [], changes: [], selectedChange: null, stackRange: null });
 
     slopReviewExtension(pi as never);
-    await commands.get("jj-cd")?.handler("../selected-workspace", ctx);
+    await commands.get("jj:cd")?.handler("../selected-workspace", ctx);
     await commands.get("diff")?.handler("", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/selected-workspace");

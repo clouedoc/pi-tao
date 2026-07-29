@@ -92,4 +92,30 @@ describe("jj commands", () => {
     expect(pi.sendMessage).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith("The current jj change has no description", "warning");
   });
+
+  it("creates a new change with /jj:new in the default workspace", async () => {
+    const { pi, commands } = await createPi({
+      root: { code: 0, stdout: "/repo\n", stderr: "" },
+      new: { code: 0, stdout: "", stderr: "" },
+    });
+    const ctx = createCtx();
+
+    await commands.get("jj:new")?.handler("", ctx as never);
+
+    expect(pi.exec).toHaveBeenCalledWith("jj", ["new"], { cwd: "/repo" });
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Created a new jj change on top of @", "info");
+  });
+
+  it("reports /jj:new failures", async () => {
+    const { pi, commands } = await createPi({
+      root: { code: 0, stdout: "/repo\n", stderr: "" },
+      new: { code: 1, stdout: "", stderr: "boom" },
+    });
+    const ctx = createCtx();
+
+    await commands.get("jj:new")?.handler("", ctx as never);
+
+    expect(pi.exec).toHaveBeenCalledWith("jj", ["new"], { cwd: "/repo" });
+    expect(ctx.ui.notify).toHaveBeenCalledWith("boom", "error");
+  });
 });

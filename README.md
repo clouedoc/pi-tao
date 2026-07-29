@@ -36,6 +36,7 @@ pi install git:github.com/clouedoc/pi-tao
 | `/jj:cwd` | Show the default workspace used by `/jj:diff` and `/jj` |
 | `/jj:cd <path>` | Set the default workspace used by `/jj:diff` and `/jj` |
 | `/jj:describe` | Edit the current change description in your editor |
+| `/jj:new` | Create a new change on top of `@` |
 | `/jj` | Send the current change description to the agent as the task specification |
 
 `/jj` treats the description of `@` as the complete task specification and asks the agent to implement it without reorganizing jj changes. It queues the task as a follow-up when the agent is busy.

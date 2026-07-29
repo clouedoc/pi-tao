@@ -117,8 +117,7 @@ async function handleJjDescribeCommand(args: string, ctx: ExtensionCommandContex
   }
 }
 
-async function handleJjCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
-  if (args.trim()) {
+async function handleJjCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {  if (args.trim()) {
     ctx.ui.notify("/jj takes no arguments; its task comes from the current change description", "warning");
     return;
   }
@@ -176,10 +175,33 @@ Follow this protocol:
   pi.sendMessage(message, { triggerTurn: true });
 }
 
+async function handleJjNewCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+  if (args.trim()) {
+    ctx.ui.notify("/jj:new takes no arguments", "warning");
+    return;
+  }
+
+  const root = await readWorkspaceRoot(pi, ctx);
+  if (!root) return;
+
+  const result = await pi.exec("jj", ["new"], { cwd: root });
+  if (result.code !== 0) {
+    ctx.ui.notify(result.stderr.trim() || "jj new failed", "error");
+    return;
+  }
+
+  ctx.ui.notify("Created a new jj change on top of @", "info");
+}
+
 export function registerJjCommands(pi: ExtensionAPI): void {
   pi.registerCommand("jj", {
     description: "Implement the task in the current jj change description",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCommand(args, ctx, pi),
+  });
+
+  pi.registerCommand("jj:new", {
+    description: "Create a new jj change on top of @",
+    handler: (args: string, ctx: ExtensionCommandContext) => handleJjNewCommand(args, ctx, pi),
   });
 
   pi.registerCommand("jj:describe", {

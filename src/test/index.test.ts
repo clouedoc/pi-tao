@@ -63,7 +63,7 @@ describe("slop review extension", () => {
 
     slopReviewExtension(pi as never);
 
-    expect([...commands.keys()]).toEqual(["jj:diff", "jj", "jj:describe", "jj:cd", "jj:cwd"]);
+    expect([...commands.keys()]).toEqual(["jj:diff", "jj", "jj:new", "jj:describe", "jj:cd", "jj:cwd"]);
     expect(pi.registerShortcut).not.toHaveBeenCalled();
 
     await commands.get("jj:diff")?.handler("", ctx);

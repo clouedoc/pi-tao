@@ -63,10 +63,10 @@ describe("slop review extension", () => {
 
     slopReviewExtension(pi as never);
 
-    expect([...commands.keys()]).toEqual(["diff", "jj", "jj:describe", "jj:cd", "jj:cwd"]);
+    expect([...commands.keys()]).toEqual(["jj:diff", "jj", "jj:describe", "jj:cd", "jj:cwd"]);
     expect(pi.registerShortcut).not.toHaveBeenCalled();
 
-    await commands.get("diff")?.handler("", ctx);
+    await commands.get("jj:diff")?.handler("", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenCalledWith(pi, "/repo");
     expect(mocks.runReviewApp).toHaveBeenCalledWith(ctx, expect.objectContaining({
@@ -86,7 +86,7 @@ describe("slop review extension", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith("slopchop config: bad shortcut config", "warning");
 
     mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/other-workspace", files, changes, selectedChange, stackRange });
-    await commands.get("diff")?.handler("../other-workspace", ctx);
+    await commands.get("jj:diff")?.handler("../other-workspace", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/other-workspace");
     expect(mocks.runReviewApp).toHaveBeenLastCalledWith(ctx, expect.objectContaining({
@@ -94,7 +94,7 @@ describe("slop review extension", () => {
     }));
   });
 
-  it("reviews the workspace selected by /jj:cd when /diff gets no path", async () => {
+  it("reviews the workspace selected by /jj:cd when /jj:diff gets no path", async () => {
     const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
@@ -110,7 +110,7 @@ describe("slop review extension", () => {
 
     slopReviewExtension(pi as never);
     await commands.get("jj:cd")?.handler("../selected-workspace", ctx);
-    await commands.get("diff")?.handler("", ctx);
+    await commands.get("jj:diff")?.handler("", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/selected-workspace");
   });

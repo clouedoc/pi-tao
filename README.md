@@ -3,9 +3,7 @@
 > [!NOTE]
 > This is a Jujutsu-only fork of [pi-slopchop](https://github.com/robzolkos/pi-slopchop). It focuses on `jj` workflows and does not support Git repositories.
 
-`/diff` opens a terminal-native review and annotation surface for Pi in a Jujutsu workspace.
-
-It lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
+`pi-slopchop-jj` lets you stop after an agent turn, review the current change or stack inside Pi, add precise feedback, and insert a follow-up prompt into Pi's editor.
 
 It also ships a few Jujutsu workflow commands: `/jj`, `/jj:describe`, `/jj:cd`, and `/jj:cwd`.
 
@@ -31,25 +29,27 @@ pi install git:github.com/clouedoc/pi-slopchop-jj
 Restart Pi or run `/reload`, then open a Jujutsu workspace and run:
 
 ```text
-/diff [workspace]
+/jj:diff [workspace]
 ```
 
-The optional path opens another Jujutsu workspace, for example `/diff ../other-workspace`. Without a path, `/diff` uses the workspace selected by `/jj:cd`, or the current working directory.
+The optional path opens another Jujutsu workspace, for example `/jj:diff ../other-workspace`. Without a path, `/jj:diff` uses the workspace selected by `/jj:cd`, or the current working directory.
 
 The review UI does not send feedback automatically. It inserts the generated prompt into Pi's editor so you can review or edit it before sending.
 
 ## Basic flow
 
-1. Run `/diff`, optionally with another workspace path such as `/diff ../other-workspace`.
-2. Pick Change or Stack with `1` or `2`. In Change, press `r` to choose another change.
-3. Move to the file and line you want to review.
-4. Add feedback:
+1. Run `/jj:describe` to describe the change you want in your editor.
+2. Run `/jj` to send that description to the agent as the task specification.
+3. Run `/jj:diff` to open the terminal-native review and annotation surface on the result, optionally with another workspace path such as `/jj:diff ../other-workspace`.
+4. Pick Change or Stack with `1` or `2`. In Change, press `r` to choose another change.
+5. Move to the file and line you want to review.
+6. Add feedback:
    - `f` for a line comment with `FIX` preselected
    - `d` or `c` for a line comment with `DISCUSS` preselected
    - `l` for a file comment
    - `a` for a whole-review note
-5. Press `s` to insert the generated prompt into Pi's editor.
-6. Edit it if needed, then send it normally.
+7. Press `s` to insert the generated prompt into Pi's editor.
+8. Edit it if needed, then send it normally.
 
 For fast repeated feedback, select a changed line, press `t`, then press a template shortcut from the comments panel. Press `e` afterwards to refine the generated comment.
 
@@ -160,8 +160,8 @@ Comment markers in the diff gutter:
 | --- | --- |
 | `/jj` | Send the current change description to the agent as the task specification |
 | `/jj:describe` | Edit the current change description in your editor |
-| `/jj:cd <path>` | Set the default workspace used by `/diff` and `/jj` |
-| `/jj:cwd` | Show the default workspace used by `/diff` and `/jj` |
+| `/jj:cd <path>` | Set the default workspace used by `/jj:diff` and `/jj` |
+| `/jj:cwd` | Show the default workspace used by `/jj:diff` and `/jj` |
 
 `/jj` treats the description of `@` as the complete task specification and asks the agent to implement it without reorganizing jj changes. It queues the task as a follow-up when the agent is busy.
 

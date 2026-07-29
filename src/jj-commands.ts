@@ -188,13 +188,13 @@ export function registerJjCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("jj:cd", {
-    description: "Set the default Jujutsu workspace used by /diff and /jj",
+    description: "Set the default Jujutsu workspace used by /jj:diff and /jj",
     getArgumentCompletions: getDirectoryCompletions,
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCdCommand(args, ctx, pi),
   });
 
   pi.registerCommand("jj:cwd", {
-    description: "Show the default Jujutsu workspace used by /diff and /jj",
+    description: "Show the default Jujutsu workspace used by /jj:diff and /jj",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCwdCommand(args, ctx, pi),
   });
 }

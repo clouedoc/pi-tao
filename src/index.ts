@@ -69,7 +69,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
     },
   };
 
-  pi.registerCommand("diff", reviewCommand);
+  pi.registerCommand("jj:diff", reviewCommand);
   registerJjCommands(pi);
 
   pi.on("session_shutdown", async () => {

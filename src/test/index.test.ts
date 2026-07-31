@@ -41,6 +41,7 @@ describe("slop review extension", () => {
     const commands = new Map<string, { handler: (args: string, ctx: { cwd: string; hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn>; setEditorText: ReturnType<typeof vi.fn> } }) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
+      registerMessageRenderer: vi.fn(),
       registerShortcut: vi.fn(),
       on: vi.fn(),
     };
@@ -63,7 +64,7 @@ describe("slop review extension", () => {
 
     slopReviewExtension(pi as never);
 
-    expect([...commands.keys()]).toEqual(["jj:diff", "jj", "jj:new", "jj:describe", "jj:cd", "jj:cwd"]);
+    expect([...commands.keys()]).toEqual(["jj:diff", "jj", "jj:new", "jj:log", "jj:describe", "jj:cd", "jj:cwd"]);
     expect(pi.registerShortcut).not.toHaveBeenCalled();
 
     await commands.get("jj:diff")?.handler("", ctx);
@@ -98,6 +99,7 @@ describe("slop review extension", () => {
     const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
+      registerMessageRenderer: vi.fn(),
       exec: vi.fn().mockResolvedValue({ code: 0, stdout: "/selected-workspace\n", stderr: "" }),
       on: vi.fn(),
     };

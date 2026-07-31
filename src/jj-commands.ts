@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 
 let defaultWorkspaceRoot: string | undefined;
 
@@ -175,6 +176,26 @@ Follow this protocol:
   pi.sendMessage(message, { triggerTurn: true });
 }
 
+async function handleJjLogCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+  const argument = args.trim();
+  if (argument.length > 0 && !/^[1-9]\d*$/.test(argument)) {
+    ctx.ui.notify("Usage: /jj:log [commit count]", "warning");
+    return;
+  }
+  const limit = argument.length === 0 ? 5 : Number.parseInt(argument, 10);
+
+  const root = await readWorkspaceRoot(pi, ctx);
+  if (!root) return;
+
+  const result = await pi.exec("jj", ["log", "-n", String(limit)], { cwd: root });
+  if (result.code !== 0) {
+    ctx.ui.notify(result.stderr.trim() || "jj log failed", "error");
+    return;
+  }
+
+  pi.sendMessage({ customType: "jj-log", content: result.stdout.trimEnd(), display: true });
+}
+
 async function handleJjNewCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
   if (args.trim()) {
     ctx.ui.notify("/jj:new takes no arguments", "warning");
@@ -194,6 +215,10 @@ async function handleJjNewCommand(args: string, ctx: ExtensionCommandContext, pi
 }
 
 export function registerJjCommands(pi: ExtensionAPI): void {
+  pi.registerMessageRenderer("jj-log", (message) =>
+    typeof message.content === "string" ? new Text(message.content, 0, 0) : undefined,
+  );
+
   pi.registerCommand("jj", {
     description: "Implement the task in the current jj change description",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjCommand(args, ctx, pi),
@@ -202,6 +227,11 @@ export function registerJjCommands(pi: ExtensionAPI): void {
   pi.registerCommand("jj:new", {
     description: "Create a new jj change on top of @",
     handler: (args: string, ctx: ExtensionCommandContext) => handleJjNewCommand(args, ctx, pi),
+  });
+
+  pi.registerCommand("jj:log", {
+    description: "Show the most recent jj commits (default 5)",
+    handler: (args: string, ctx: ExtensionCommandContext) => handleJjLogCommand(args, ctx, pi),
   });
 
   pi.registerCommand("jj:describe", {

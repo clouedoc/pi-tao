@@ -9,6 +9,7 @@ async function createPi(execResults: Record<string, { code: number; stdout: stri
   const commands = new Map<string, Command>();
   const pi = {
     registerCommand: vi.fn((name: string, command: Command) => commands.set(name, command)),
+    registerMessageRenderer: vi.fn(),
     exec: vi.fn(async (_command: string, args: string[]) => {
       const key = args.includes("root") ? "root" : (args.at(-1) ?? "");
       return execResults[key] ?? { code: 1, stdout: "", stderr: `unexpected exec: ${args.join(" ")}` };
@@ -116,6 +117,55 @@ describe("jj commands", () => {
     await commands.get("jj:new")?.handler("", ctx as never);
 
     expect(pi.exec).toHaveBeenCalledWith("jj", ["new"], { cwd: "/repo" });
+    expect(ctx.ui.notify).toHaveBeenCalledWith("boom", "error");
+  });
+
+  it("shows the 5 most recent commits with /jj:log by default", async () => {
+    const { pi, commands } = await createPi({
+      root: { code: 0, stdout: "/repo\n", stderr: "" },
+      "5": { code: 0, stdout: "commit graph\n", stderr: "" },
+    });
+    const ctx = createCtx();
+
+    await commands.get("jj:log")?.handler("", ctx as never);
+
+    expect(pi.exec).toHaveBeenCalledWith("jj", ["log", "-n", "5"], { cwd: "/repo" });
+    expect(pi.sendMessage).toHaveBeenCalledWith({ customType: "jj-log", content: "commit graph", display: true });
+  });
+
+  it("tweaks the commit count with /jj:log <x>", async () => {
+    const { pi, commands } = await createPi({
+      root: { code: 0, stdout: "/repo\n", stderr: "" },
+      "12": { code: 0, stdout: "commit graph\n", stderr: "" },
+    });
+    const ctx = createCtx();
+
+    await commands.get("jj:log")?.handler("12", ctx as never);
+
+    expect(pi.exec).toHaveBeenCalledWith("jj", ["log", "-n", "12"], { cwd: "/repo" });
+    expect(pi.sendMessage).toHaveBeenCalledWith({ customType: "jj-log", content: "commit graph", display: true });
+  });
+
+  it("rejects an invalid commit count for /jj:log", async () => {
+    const { pi, commands } = await createPi({ root: { code: 0, stdout: "/repo\n", stderr: "" } });
+    const ctx = createCtx();
+
+    await commands.get("jj:log")?.handler("abc", ctx as never);
+
+    expect(pi.exec).not.toHaveBeenCalledWith("jj", ["log", "-n", expect.anything()], expect.anything());
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Usage: /jj:log [commit count]", "warning");
+  });
+
+  it("reports /jj:log failures", async () => {
+    const { pi, commands } = await createPi({
+      root: { code: 0, stdout: "/repo\n", stderr: "" },
+      "5": { code: 1, stdout: "", stderr: "boom" },
+    });
+    const ctx = createCtx();
+
+    await commands.get("jj:log")?.handler("", ctx as never);
+
+    expect(pi.sendMessage).not.toHaveBeenCalled();
     expect(ctx.ui.notify).toHaveBeenCalledWith("boom", "error");
   });
 });

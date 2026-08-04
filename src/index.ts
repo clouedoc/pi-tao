@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getDefaultWorkspaceRoot, registerJjCommands } from "./jj-commands.js";
@@ -29,13 +29,11 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
       if (commandArgs.length > 0) {
         const candidateRoot = resolve(ctx.cwd, commandArgs);
         const pathAndRevision = commandArgs.match(/^(.*\S)\s+(\S+)$/);
-        if (existsSync(candidateRoot)) {
+        if (existsSync(candidateRoot) && statSync(candidateRoot).isDirectory()) {
           reviewCwd = candidateRoot;
         } else if (pathAndRevision != null) {
           reviewCwd = resolve(ctx.cwd, pathAndRevision[1]!);
           revision = pathAndRevision[2]!;
-        } else if (commandArgs.includes("/")) {
-          reviewCwd = candidateRoot;
         } else {
           revision = commandArgs;
         }

@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  existsSync: vi.fn(),
+  statSync: vi.fn(),
   loadCommentShortcuts: vi.fn(),
   getReviewWindowData: vi.fn(),
   loadReviewFileContents: vi.fn(),
   composeReviewPrompt: vi.fn(),
   runReviewApp: vi.fn(),
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mocks.existsSync,
+  statSync: mocks.statSync,
 }));
 
 vi.mock("../shortcuts.js", () => ({
@@ -30,6 +37,8 @@ const { default: slopReviewExtension } = await import("../index.js");
 describe("slop review extension", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.existsSync.mockImplementation((path: unknown) => path === "/repo/beef" || path === "/other-workspace");
+    mocks.statSync.mockImplementation((path: unknown) => ({ isDirectory: () => path === "/other-workspace" }));
     mocks.loadCommentShortcuts.mockReturnValue({
       shortcuts: [],
       warnings: ["bad shortcut config"],
@@ -89,6 +98,10 @@ describe("slop review extension", () => {
     await commands.get("jj:diff")?.handler("beef", ctx);
 
     expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/repo", "beef");
+
+    await commands.get("jj:diff")?.handler("beef/0", ctx);
+
+    expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/repo", "beef/0");
 
     mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/other-workspace", files, changes, selectedChange, stackRange });
     await commands.get("jj:diff")?.handler("../other-workspace", ctx);

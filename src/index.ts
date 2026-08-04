@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getDefaultWorkspaceRoot, registerJjCommands } from "./jj-commands.js";
@@ -22,12 +23,28 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
 
     activeReview = true;
     try {
-      const requestedRoot = args.trim();
-      const reviewCwd =
-        requestedRoot.length === 0
-          ? (getDefaultWorkspaceRoot() ?? ctx.cwd)
-          : resolve(ctx.cwd, requestedRoot);
-      const { repoRoot, files, changes, selectedChange, stackRange } = await getReviewWindowData(pi, reviewCwd);
+      const commandArgs = args.trim();
+      let reviewCwd = getDefaultWorkspaceRoot() ?? ctx.cwd;
+      let revision: string | undefined;
+      if (commandArgs.length > 0) {
+        const candidateRoot = resolve(ctx.cwd, commandArgs);
+        const pathAndRevision = commandArgs.match(/^(.*\S)\s+(\S+)$/);
+        if (existsSync(candidateRoot)) {
+          reviewCwd = candidateRoot;
+        } else if (pathAndRevision != null) {
+          reviewCwd = resolve(ctx.cwd, pathAndRevision[1]!);
+          revision = pathAndRevision[2]!;
+        } else if (commandArgs.includes("/")) {
+          reviewCwd = candidateRoot;
+        } else {
+          revision = commandArgs;
+        }
+      }
+
+      const reviewData = revision == null
+        ? await getReviewWindowData(pi, reviewCwd)
+        : await getReviewWindowData(pi, reviewCwd, revision);
+      const { repoRoot, files, changes, selectedChange, stackRange } = reviewData;
       const shortcutConfig = loadCommentShortcuts();
       if (files.length === 0 && changes.length === 0) {
         ctx.ui.notify("No reviewable changes found in this Jujutsu workspace.", "info");
@@ -63,7 +80,7 @@ export default function slopReviewExtension(pi: ExtensionAPI) {
   }
 
   const reviewCommand = {
-    description: "Review and annotate changes in the current or specified Jujutsu workspace",
+    description: "Review and annotate a change in the current or specified Jujutsu workspace",
     handler: async (args: string, ctx: ExtensionContext) => {
       await openReview(ctx, args);
     },

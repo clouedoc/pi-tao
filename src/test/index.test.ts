@@ -37,7 +37,7 @@ describe("slop review extension", () => {
     });
   });
 
-  it("registers the review and jj commands and keeps the change picker available when the current comparisons are empty", async () => {
+  it("registers the review and jj commands and opens requested workspaces and changes", async () => {
     const commands = new Map<string, { handler: (args: string, ctx: { cwd: string; hasUI: boolean; ui: { notify: ReturnType<typeof vi.fn>; setEditorText: ReturnType<typeof vi.fn> } }) => Promise<void> }>();
     const pi = {
       registerCommand: vi.fn((name: string, command) => commands.set(name, command)),
@@ -86,6 +86,10 @@ describe("slop review extension", () => {
     expect(ctx.ui.setEditorText).toHaveBeenCalledWith("prompt body");
     expect(ctx.ui.notify).toHaveBeenCalledWith("tao config: bad shortcut config", "warning");
 
+    await commands.get("jj:diff")?.handler("beef", ctx);
+
+    expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/repo", "beef");
+
     mocks.getReviewWindowData.mockResolvedValue({ repoRoot: "/other-workspace", files, changes, selectedChange, stackRange });
     await commands.get("jj:diff")?.handler("../other-workspace", ctx);
 
@@ -93,6 +97,10 @@ describe("slop review extension", () => {
     expect(mocks.runReviewApp).toHaveBeenLastCalledWith(ctx, expect.objectContaining({
       repoRoot: "/other-workspace",
     }));
+
+    await commands.get("jj:diff")?.handler("../other-workspace abcde", ctx);
+
+    expect(mocks.getReviewWindowData).toHaveBeenLastCalledWith(pi, "/other-workspace", "abcde");
   });
 
   it("reviews the workspace selected by /jj:cd when /jj:diff gets no path", async () => {

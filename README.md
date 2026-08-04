@@ -10,7 +10,7 @@ it's the next big thing.
 
 1. Run `/jj:describe` to describe the change you want in your editor.
 2. Run `/jj` to send that description to the agent as the task specification.
-3. Run `/jj:diff` to open the terminal-native review and annotation surface on the result, optionally with another workspace path such as `/jj:diff ../other-workspace`.
+3. Run `/jj:diff` to open the terminal-native review and annotation surface on the result. Pass a workspace path, a change ID, or both, such as `/jj:diff ../other-workspace`, `/jj:diff beef`, or `/jj:diff ../other-workspace abcde`.
 4. Pick Change or Stack with `1` or `2`. In Change, press `r` to choose another change.
 5. Move to the file and line you want to review.
 6. Add feedback:
@@ -33,6 +33,7 @@ pi install git:github.com/clouedoc/pi-tao
 
 | Command | Description |
 | --- | --- |
+| `/jj:diff [path] [change ID]` | Review the current or specified change in the current or specified workspace |
 | `/jj:cwd` | Show the default workspace used by `/jj:diff` and `/jj` |
 | `/jj:cd <path>` | Set the default workspace used by `/jj:diff` and `/jj` |
 | `/jj:describe` | Edit the current change description in your editor |
